@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-from router.auth import register, verify_account
+from router.auth import register, verify_account, login, resend_code
 from router.company import get_all_companies
 
 load_dotenv()
@@ -27,8 +27,8 @@ app.add_middleware(
 )
 
 app.include_router(register.router)
-# app.include_router(login.router)
-# app.include_router(resend_code.router)
+app.include_router(login.router)
+app.include_router(resend_code.router)
 app.include_router(verify_account.router)
 app.include_router(get_all_companies.router)
 # app.include_router(get_user_tasks.router)

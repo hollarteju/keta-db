@@ -1,14 +1,12 @@
 from sqlalchemy.future import select
 from fastapi import APIRouter, Depends, HTTPException, status
-from fastapi.responses import JSONResponse
-from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import Companies
 from schemas import CreateCompany, CompanyResponse, RegisterCompanyResponse
 from database import get_db
 from utils.email_config import send_email
 import random
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta
 
 
 

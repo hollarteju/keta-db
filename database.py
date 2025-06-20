@@ -60,7 +60,7 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("sub")
+        email: str = payload.get("id")
         if email is None:
             raise credentials_exception
         token_data = TokenData(email=email)
@@ -85,10 +85,10 @@ async def refresh_access_token(refresh_token: str):
     
     try:
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-        id: str = payload.get("sub")
+        id: str = payload.get("id")
         if id is None:
             raise credentials_exception
-        new_access_token = create_access_token(data={"sub": id})
+        new_access_token = create_access_token(data={"id": id})
         return {"access_token": new_access_token, "token_type": "bearer"}
     # except ExpiredSignatureError:
     #     raise HTTPException(

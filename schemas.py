@@ -2,11 +2,14 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional
 from uuid import UUID
 from datetime import datetime
+from typing import Literal
+
 
 
 class Token(BaseModel):
     access_token: str
     token_type: str
+    status: Literal["success"]
 
 class TokenData(BaseModel):
     email: str | None = None
@@ -29,6 +32,9 @@ class companyBase(BaseModel):
 class CreateCompany(BaseModel):
     email: EmailStr  
     password: str
+
+class ResendCompanyCode(BaseModel):
+    email: EmailStr 
 
 class CompanyResponse(BaseModel):
     id: UUID
@@ -61,9 +67,9 @@ class AllCompanyResponse(companyBase):
             'password': {'exclude': True}
         }
 
-# class LoginScheme(BaseModel):
-#     username_or_email: str
-#     password: str
+class LoginScheme(BaseModel):
+    email: str
+    password: str
 
 # class TaskCreateRequest(BaseModel):
 #     platform: str

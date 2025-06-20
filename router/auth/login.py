@@ -1,47 +1,53 @@
-# from fastapi import APIRouter, Depends, HTTPException, status
-# from sqlalchemy.ext.asyncio import AsyncSession
-# from sqlalchemy.future import select
-# from models import Companies
-# from schemas import Token, LoginScheme
-# from database import get_db, create_access_token
-# from sqlalchemy.orm import Session
+from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from models import Companies
+from schemas import Token, LoginScheme
+from database import get_db, create_access_token
 
 
 
 
-# router = APIRouter(
-#     prefix="/api/v1",
-#     tags=["users"]
-# )
+router = APIRouter(
+    prefix="/api/v1",
+    tags=["companies"]
+)
 
 
-# @router.post("/login", response_model=Token)
-# async def login_for_access_token(requests: LoginScheme, db: Session = Depends(get_db)):
+@router.post("/login", response_model=Token)
+async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depends(get_db)):
    
-#     stmt = select(Users).filter(
-#         (Users.username == requests.username_or_email) | (Users.email == requests.username_or_email)
-#     )
-#     result = await db.execute(stmt)
-#     user = result.scalars().first()
+    payload = select(Companies).filter(
+        (Companies.email == requests.email) | (Companies.email == requests.email)
+    )
+
+    result = await db.execute(payload)
+    company = result.scalars().first()
     
    
-#     if not user or not user.verify_password(requests.password):
-#         raise HTTPException(
-#             status_code=status.HTTP_401_UNAUTHORIZED,
-#             detail="Invalid credentials",
-#             headers={"WWW-Authenticate": "Bearer"},
-#         )
+    if not company or not company.verify_password(requests.password):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
-#     access_token = create_access_token(data={
-#         "sub": str(user.id),  
-#         "email": user.email,
-#         "username": user.username,
-#         "full_name": user.full_name,
-#         "verified_email": user.verified_email,
-#         "wallet": user.wallet,
-#         "account_number": user.account_number,
-#         "profile_pic" : user.profile_pic,
-#         "created_at": user.created_at.isoformat()  
-#     })
+    access_token = create_access_token(data={
+        "id": str(company.id),  
+        "email": company.email,
+        "company_name": company.company_name,
+        "company_industry": company.company_industry,
+        "verified_email": company.verified_email,
+        "phone_number": company.phone_number,
+        "address": company.address,
+        "country": company.country,
+        "subscription": company.subscription,
+        "profile_pic" : company.profile_pic,
+        "created_at": company.created_at.isoformat()  
+    })
 
-#     return Token(access_token=access_token, token_type="bearer")
+    return Token(
+        access_token=access_token, 
+        token_type="bearer",
+        status="success"
+        )
