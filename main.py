@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 import os
 
-from router.auth import register, verify_account, login, resend_code
+from router.auth import register, verify_account, login, resend_code, forgotten_password, update_company
 from router.company import get_all_companies
 
 load_dotenv()
@@ -31,7 +31,8 @@ app.include_router(login.router)
 app.include_router(resend_code.router)
 app.include_router(verify_account.router)
 app.include_router(get_all_companies.router)
-# app.include_router(get_user_tasks.router)
+app.include_router(forgotten_password.router)
+app.include_router(update_company.router)
 # app.include_router(get_all_tasks.router)
 # app.include_router(get_task.router)
 # app.include_router(get_pick_tasks.router)

@@ -9,6 +9,7 @@ from typing import Literal
 class Token(BaseModel):
     access_token: str
     token_type: str
+    refresh_token: str
     status: Literal["success"]
 
 class TokenData(BaseModel):
@@ -117,3 +118,20 @@ class LoginScheme(BaseModel):
 
 # class profilePictureResponse(BaseModel):
 #     image_url: str
+
+
+class UpdateCompany(BaseModel):
+    company_name: Optional[str]
+    company_industry: Optional[str]
+    phone_number: Optional[str]
+    address: Optional[str]
+    country: Optional[str]
+
+    class Config:
+        from_attributes = True
+
+class UpdateCompanyResponse(BaseModel):
+    status: str
+    message: str
+    company: UpdateCompany
+

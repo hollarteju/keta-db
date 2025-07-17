@@ -14,15 +14,16 @@ templates = Jinja2Templates(directory="templates")  # Ensure this folder contain
 EMAIL= os.getenv("EMAIL")
 EMAIL_PASSWORD= os.getenv("EMAIL_PASSWORD")
 
-async def send_email(recipient_email: str, token: str ):
+
+async def forgotten_password_verification(recipient_email: str, token: str ):
     email_address = EMAIL
     email_password = EMAIL_PASSWORD
 
-    template = templates.get_template("verification_email.html")  
+    template = templates.get_template("forgotten_password.html")  
     html_body = template.render(token=token)  
 
     msg = EmailMessage()
-    msg["Subject"] = "Verify Account"
+    msg["Subject"] = "Password Reset Request"
     msg["From"] = email_address
     msg["To"] = recipient_email
     msg.add_alternative(html_body, subtype="html") 
