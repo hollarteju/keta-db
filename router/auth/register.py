@@ -45,7 +45,7 @@ async def create_company(company: CreateCompany, db: AsyncSession = Depends(get_
         await db.commit()
         await db.refresh(new_company)
 
-        await send_email(company.email, str(token))
+        await send_email(company.email, str(token), "verification_email.html")
 
         return RegisterCompanyResponse(
             status="success",

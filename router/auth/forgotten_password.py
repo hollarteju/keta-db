@@ -6,6 +6,7 @@ from sqlalchemy.future import select
 import random
 from datetime import datetime, timedelta
 from utils.forgotten_config import forgotten_password_verification
+from utils.email_config import send_email
 from fastapi.responses import JSONResponse
 
 
@@ -36,7 +37,7 @@ async def forgotten_password_reset_email(email: str, db: AsyncSession = Depends(
     await db.commit()
     await db.refresh(existing_company_email)
 
-    await forgotten_password_verification(existing_company_email.email, str(token))
+    await send_email(existing_company_email.email, str(token), "forgotten_password.html")
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,

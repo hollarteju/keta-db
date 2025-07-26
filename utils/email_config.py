@@ -14,11 +14,11 @@ templates = Jinja2Templates(directory="templates")  # Ensure this folder contain
 EMAIL= os.getenv("EMAIL")
 EMAIL_PASSWORD= os.getenv("EMAIL_PASSWORD")
 
-async def send_email(recipient_email: str, token: str ):
+async def send_email(recipient_email: str, token: str, html_template: str ):
     email_address = EMAIL
     email_password = EMAIL_PASSWORD
 
-    template = templates.get_template("verification_email.html")  
+    template = templates.get_template(html_template)  
     html_body = template.render(token=token)  
 
     msg = EmailMessage()

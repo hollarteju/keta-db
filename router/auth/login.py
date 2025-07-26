@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models import Companies
 from schemas import Token, LoginScheme
-from database import get_db, create_access_token
+from database import get_db, create_access_token, create_refresh_token
 
 
 
@@ -18,7 +18,7 @@ router = APIRouter(
 async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depends(get_db)):
    
     payload = select(Companies).filter(
-        (Companies.email == requests.email) | (Companies.email == requests.email)
+        Companies.email == requests.email
     )
 
     result = await db.execute(payload)
@@ -32,7 +32,7 @@ async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depen
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    access_token = create_access_token(data={
+    token_data = {
         "id": str(company.id),  
         "email": company.email,
         "company_name": company.company_name,
@@ -44,10 +44,14 @@ async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depen
         "subscription": company.subscription,
         "profile_pic" : company.profile_pic,
         "created_at": company.created_at.isoformat()  
-    })
+    }
+
+    access_token = create_access_token(data=token_data)
+    refresh_token = create_refresh_token(data={"id": str(company.id)})
 
     return Token(
         access_token=access_token, 
+        refresh_token=refresh_token,
         token_type="bearer",
         status="success"
         )

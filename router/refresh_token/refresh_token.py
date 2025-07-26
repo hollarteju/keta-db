@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models import Companies
-from schemas import Token, LoginScheme
+from schemas import Token, TokenRefreshRequest
 from database import get_db, refresh_access_token
 
 
@@ -12,11 +12,11 @@ router = APIRouter(
 )
 
 @router.post("/refresh", response_model=Token)
-async def refresh_token(refresh_token: str, db: AsyncSession = Depends(get_db)):
-    new_token = await refresh_access_token(refresh_token)
+async def refresh_token(payload: TokenRefreshRequest, db: AsyncSession = Depends(get_db)):
+    new_token = await refresh_access_token(payload.refresh_token)
     return Token(
         access_token=new_token["access_token"],
-        refresh_token=refresh_token,
+        refresh_token=new_token["refresh_token"],
         token_type="bearer",
         status="success"
     )

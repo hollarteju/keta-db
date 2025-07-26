@@ -1,7 +1,4 @@
 from fastapi import FastAPI
-import asyncio
-import sys
-from database import engine, reset_db, clear_alembic_version, Base
 from fastapi.middleware.cors import CORSMiddleware
 # from router.tasks import upload_task, get_user_tasks, get_all_tasks, get_task, get_pick_tasks, submit_task, get_submit_tasks
 # from router.settings import profile_picture
@@ -9,7 +6,8 @@ from dotenv import load_dotenv
 import os
 
 from router.auth import register, verify_account, login, resend_code, forgotten_password, update_company
-from router.company import get_all_companies
+from router.company import get_all_companies, onboarding
+from router.refresh_token import refresh_token
 
 load_dotenv()
 
@@ -33,6 +31,8 @@ app.include_router(verify_account.router)
 app.include_router(get_all_companies.router)
 app.include_router(forgotten_password.router)
 app.include_router(update_company.router)
+app.include_router(refresh_token.router)
+app.include_router(onboarding.router)
 # app.include_router(get_all_tasks.router)
 # app.include_router(get_task.router)
 # app.include_router(get_pick_tasks.router)
