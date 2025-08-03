@@ -182,6 +182,24 @@ class StaffPermissionUpdate(BaseModel):
 # class StaffPermissionResponse(BaseModel):
 
 
+class StaffLoginRequest(BaseModel):
+    email: EmailStr
+
+class StaffLoginResponse(BaseModel):
+    id: UUID
+class StaffVerifyResponse(BaseModel):
+    id: UUID
+    full_name: str
+    email: EmailStr
+    phone_number: str
+    job_title: str
+    department: str
+    profile_pic: Optional[str]
+    role: str
+    permissions: Dict
+    accept_invitation: bool
+    created_at: datetime
+    company_id: UUID
 
 class StaffDelete(BaseModel):
     company_id: UUID

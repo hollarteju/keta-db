@@ -7,6 +7,7 @@ import os
 
 from router.auth import register, verify_account, login, resend_code, forgotten_password, update_company
 from router.company import get_all_companies, onboarding
+from router.staffs.auth import staff_login 
 from router.refresh_token import refresh_token
 
 load_dotenv()
@@ -26,6 +27,7 @@ app.add_middleware(
 
 app.include_router(register.router)
 app.include_router(login.router)
+app.include_router(staff_login.router)
 app.include_router(resend_code.router)
 app.include_router(verify_account.router)
 app.include_router(get_all_companies.router)

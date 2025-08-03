@@ -54,7 +54,6 @@ async def create_company(company: CreateCompany, db: AsyncSession = Depends(get_
         )
 
     except Exception as e:
-            print(e)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Unexpected error during company registration: {e}."

@@ -41,7 +41,7 @@ async def create_staff(staff: StaffCreate, db: AsyncSession = Depends(get_db)):
         await db.commit()
         await db.refresh(db_staff)
 
-        redirect = f"https://tracc-box.vercel.app/onboarding?company={company_id}&&onboard_staff={staff.email}"
+        redirect = f"https://tracc-box.vercel.app/accept-invitation?company_id={company_id}&email={staff.email}"
         await send_email(staff.email, redirect, "onboarding.html" )
 
         return {

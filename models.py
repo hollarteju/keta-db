@@ -23,6 +23,7 @@ class Companies(Base):
     verified_email = Column(Boolean, nullable=True, default=False, index=True)
     subscription = Column(String(50), nullable=True,  index=True)
     profile_pic = Column(String, nullable=True, index=True)
+    active = Column(String, nullable=True, default=False)
     token = Column(String, unique=True, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
@@ -58,11 +59,20 @@ class CompanyStaffs(Base):
     role = Column(String(100), nullable=False, index=True )
     permissions = Column(JSONB, nullable=False, index=True, default={})
     accept_invitation: bool = Column(Boolean, default=False)
+
+    token = Column(String, nullable=True)
+    token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
 
     # Relationships
     companies = relationship("Companies", back_populates="company_staffs")
     
+    def validate_token(self, token: str):
+        if self.token != token:
+            raise ValueError("Invalid verification token")
+        elif self.token_expires_at is None or self.token_expires_at < datetime.utcnow():
+            raise ValueError("Verification token has expired")
+
 
 # class PickTasks(Base):
 #     __tablename__ = "pick_tasks"
