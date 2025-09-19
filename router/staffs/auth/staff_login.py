@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from uuid import UUID
 
 router = APIRouter(
-    prefix="/api/v1",
+    prefix="/api/v1/staff",
     tags=["staff"]
 )
 
@@ -47,6 +47,8 @@ async def staff_login(payload: StaffLoginRequest, db: AsyncSession = Depends(get
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Unexpected error during staff login: {e}."
         )
+    
+    
 
 @router.post("/verify_email", response_model=StaffVerifyResponse)
 async def verify_account(id: UUID, token: str, db: AsyncSession = Depends(get_db)):

@@ -14,7 +14,7 @@ router = APIRouter(
 )
 
 
-@router.post("/login", response_model=Token)
+@router.post("/companies/login", response_model=Token)
 async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depends(get_db)):
    
     payload = select(Companies).filter(

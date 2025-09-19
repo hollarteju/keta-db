@@ -2,9 +2,10 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
-from schemas import AllCompanyResponse
+from schemas import AllCompanyResponse, StaffResponse
 from fastapi.responses import JSONResponse
-from models import Companies
+from models import Companies, CompanyStaffs
+from sqlalchemy.orm import selectinload
 
 
 router = APIRouter(
@@ -24,7 +25,7 @@ async def get_all_companies(db: AsyncSession = Depends(get_db)):
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail="No companies found",
             )
-        
+                
         return companies
         
 
@@ -33,6 +34,7 @@ async def get_all_companies(db: AsyncSession = Depends(get_db)):
     except Exception as e:
         raise HTTPException(
             status_code=400,
-            detail="Connect to a strong network",
+            detail=f"Connect to a strong network {e}",
             headers={"X-Error": str(e)},
         )
+    

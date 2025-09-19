@@ -2,12 +2,15 @@ from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
-from schemas import StaffCreate, StaffAccept, StaffPermissionUpdate, StaffDelete 
+from schemas import StaffCreate, StaffAccept, StaffPermissionUpdate, StaffDelete, StaffResponse, AttendanceRecordResponse
 from fastapi.responses import JSONResponse
 from models import Companies, CompanyStaffs
+from sqlalchemy.orm import selectinload
+
 import uuid
 from typing import Dict
 from utils.email_config import send_email
+from datetime import date
 
 
 router = APIRouter(
@@ -85,6 +88,7 @@ async def accept_invitation(staff: StaffAccept, db: AsyncSession = Depends(get_d
             "id": str(staff.id),
             "full_name": staff.full_name,
             "email": staff.email,
+            "role": staff.role,
             "accept_invitation": staff.accept_invitation
         }}
 
@@ -138,3 +142,43 @@ async def update_permissions(staff: StaffDelete, db: AsyncSession = Depends(get_
         data = remaining_staffs,
         content={"message": "staff permission updated successfully"}
     )
+
+
+@router.get("/{company_id}/all_staffs", response_model=list[StaffResponse])
+async def get_company_staffs(company_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
+    try:
+        query = select(CompanyStaffs).options(selectinload(CompanyStaffs.attendance_records)).where(CompanyStaffs.company_id == company_id)
+        result = await db.execute(query)
+        staffs = result.scalars().all()
+
+        today = date.today()
+
+        # Transform staff.attendance_records → today_attendance
+        staff_responses = []
+        for staff in staffs:
+            today_record = next(
+                (record for record in staff.attendance_records if record.attendance_date == today),
+                None
+            )
+
+            staff_obj = StaffResponse.model_validate(staff)  # ✅ new Pydantic v2 method
+            if today_record:
+                staff_obj.today_attendance = AttendanceRecordResponse.model_validate(today_record)
+
+            staff_responses.append(staff_obj)
+
+        if not staff_responses:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="No staffs found for this company",
+            )
+
+        return staff_responses
+
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail="Error retrieving staff. Please check your connection.",
+            headers={"X-Error": str(e)},
+        )

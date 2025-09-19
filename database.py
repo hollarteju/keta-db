@@ -138,17 +138,17 @@ async def refresh_access_token(refresh_token: str):
             headers={"WWW-Authenticate": "Bearer"},
         )
 # Asynchronous database reset
-# async def reset_db():
-#     async with engine.begin() as conn:
-#         # await conn.run_sync(Base.metadata.drop_all)  # Drop all tables
-#         await conn.run_sync(Base.metadata.create_all)  # Create tables
-#     os.system("alembic upgrade head")
+async def reset_db():
+    async with engine.begin() as conn:
+        # await conn.run_sync(Base.metadata.drop_all)  # Drop all tables
+        await conn.run_sync(Base.metadata.create_all)  # Create tables
+    os.system("alembic upgrade head")
 
-# # Asynchronous alembic version clear
-# async def clear_alembic_version():
-#     async with engine.connect() as connection:
-#         await connection.execute(text("DELETE FROM alembic_version"))
-#         print("Alembic version table cleared!")
+# Asynchronous alembic version clear
+async def clear_alembic_version():
+    async with engine.connect() as connection:
+        await connection.execute(text("DELETE FROM alembic_version"))
+        print("Alembic version table cleared!")
 
 # Asynchronous database session dependency
 async def get_db():

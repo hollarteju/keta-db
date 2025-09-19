@@ -1,7 +1,7 @@
 from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, date
 from typing import Literal, Dict
 
 
@@ -206,3 +206,69 @@ class StaffDelete(BaseModel):
     staff_id: UUID
     permissions: Dict[str, bool]
 
+class AllStaffResponse(BaseModel):
+    id: UUID
+    company_id: UUID
+    full_name: str
+    email: EmailStr
+    phone_number: str
+    job_title: str
+    department: str
+    profile_pic: Optional[str] = None
+    role: str
+    permissions: Dict
+    accept_invitation: bool
+    is_active: bool
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class AttendanceCheckInRequest(BaseModel):
+    staff_id: UUID
+    company_id: UUID
+
+class AttendanceCheckOutRequest(BaseModel):
+    staff_id: UUID
+    company_id: UUID
+
+class AttendanceResponse(BaseModel):
+    id: UUID
+    company_id: UUID
+    staff_id: UUID
+    attendance_date: date
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+class AttendanceRecordResponse(BaseModel):
+    id: UUID
+    attendance_date: date
+    check_in_time: Optional[datetime]
+    check_out_time: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class StaffResponse(BaseModel):
+    id: UUID
+    full_name: str
+    email: str
+    profile_pic: str
+    phone_number: str
+    job_title: str
+    department: str
+    role: str
+    accept_invitation: str
+    is_active: bool
+    created_at: datetime
+    attendance_records: List[AttendanceRecordResponse] = None
+
+    model_config = {"from_attributes": True}
