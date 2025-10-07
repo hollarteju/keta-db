@@ -43,7 +43,7 @@ async def resend_verification_email(company: ResendCompanyCode, db: AsyncSession
     await db.refresh(existing_company)
 
     
-    await send_email(existing_company.email, str(token), "verification_email.html")
+    await send_email(existing_company.email, str(token), "company_verification")
     
     return JSONResponse(
         status_code=status.HTTP_200_OK,

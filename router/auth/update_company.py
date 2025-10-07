@@ -6,6 +6,7 @@ from models import Companies
 from schemas import UpdateCompanyResponse, UpdateCompany
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
+from utils.uuid_convert import uuid_to_str, str_to_uuid
 
 
 router = APIRouter(
@@ -16,7 +17,7 @@ router = APIRouter(
 @router.put("/update/{company_id}")
 async def update_company(company_id: UUID, company_data: UpdateCompany, db: AsyncSession = Depends(get_db)):
     try:
-        result = await db.execute(select(Companies).where(Companies.id == company_id))
+        result = await db.execute(select(Companies).where(Companies.id == uuid_to_str(company_id)))
         company = result.scalar_one_or_none()
 
         if not company:

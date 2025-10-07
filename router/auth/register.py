@@ -44,9 +44,14 @@ async def create_company(company: CreateCompany, db: AsyncSession = Depends(get_
         db.add(new_company)
         await db.commit()
         await db.refresh(new_company)
-
-        await send_email(company.email, str(token), "verification_email.html")
-
+        try:
+          await  send_email(company.email, str(token), "company_verification")
+        
+        except Exception as e:
+             raise HTTPException(
+                  status_code= status.HTTP_404_NOT_FOUND,
+                  detail=f"email not sent: {e}"
+             )
         return RegisterCompanyResponse(
             status="success",
             message="Company registered successfully",

@@ -6,6 +6,7 @@ from database import get_db
 from sqlalchemy.future import select
 from uuid import UUID
 from fastapi.responses import JSONResponse
+from utils.uuid_convert import uuid_to_str, str_to_uuid
 
 
 router = APIRouter(
@@ -17,7 +18,7 @@ router = APIRouter(
 async def verify_account(id: UUID, token:str, db: AsyncSession = Depends(get_db)):
     try:
         
-        result = await db.execute(select(Companies).filter(Companies.id == id))  
+        result = await db.execute(select(Companies).filter(Companies.id == uuid_to_str(id)))  
         company = result.scalar_one_or_none()
 
         if not company:

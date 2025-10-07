@@ -1,6 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.sql import func
@@ -8,7 +7,12 @@ from passlib.context import CryptContext
 from datetime import datetime, date, time, timedelta
 from enum import Enum as PyEnum
 
+
+
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+def str_to_uuid(value: str) -> uuid.UUID:
+    """Convert string to UUID if value is not None/empty."""
+    return uuid.UUID(value) if value else None
 
 class AttendanceStatus(PyEnum):
     PRESENT = "present"
@@ -28,7 +32,7 @@ class LeaveType(PyEnum):
 class Companies(Base):
     __tablename__ = "companies"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
     company_name = Column(String(100), index=True, nullable=True)
@@ -38,9 +42,9 @@ class Companies(Base):
     country = Column(String(100), nullable=True, index=True)
     verified_email = Column(Boolean, nullable=True, default=False, index=True)
     subscription = Column(String(50), nullable=True, index=True)
-    profile_pic = Column(String, nullable=True, index=True)
+    profile_pic = Column(String(225), nullable=True, index=True)
     active = Column(Boolean, nullable=True, default=False)  # Changed to Boolean
-    token = Column(String, unique=True, nullable=True)
+    token = Column(String(225), unique=True, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
     
@@ -66,23 +70,24 @@ class Companies(Base):
             raise ValueError("Invalid verification token")
         elif self.token_expires_at is None or self.token_expires_at < datetime.utcnow():
             raise ValueError("Verification token has expired")
+    
 
 class CompanyStaffs(Base):
     __tablename__ = "company_staffs"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False)
     full_name = Column(String(100), nullable=False, index=True)
     email = Column(String(255), unique=True, nullable=False, index=True)
     password = Column(String(255), nullable=False, index=True)
     phone_number = Column(String(20), nullable=False, index=True)
     job_title = Column(String(100), nullable=False, index=True)
     department = Column(String(100), nullable=False, index=True)
-    profile_pic = Column(String, nullable=True, index=True)
+    profile_pic = Column(String(225), nullable=True, index=True)
     role = Column(String(100), nullable=False, index=True)
-    permissions = Column(JSONB, nullable=False, index=True, default={})
+    permissions = Column(JSON, nullable=False, index=True, default={})
     accept_invitation = Column(Boolean, default=False)  # Fixed syntax
-    token = Column(String, nullable=True)
+    token = Column(String(225), nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
     
@@ -111,13 +116,16 @@ class CompanyStaffs(Base):
     #         'end_time': self.work_end_time or company.default_work_end_time,
     #         'grace_period': company.grace_period_minutes
     #     }
+    def company_uuid(self) -> uuid.UUID:
+        return str_to_uuid(self.company_id)
+
 
 class AttendanceRecord(Base):
     __tablename__ = "attendance_records"
     
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
-    company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
-    staff_id = Column(UUID(as_uuid=True), ForeignKey("company_staffs.id"), nullable=False, index=True)
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+    staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
     
     # Date and time tracking
     attendance_date = Column(Date, nullable=False, index=True)
@@ -137,8 +145,8 @@ class AttendanceRecord(Base):
     # overtime_minutes = Column(Integer, default=0)
     
     # Additional information
-    # check_in_location = Column(JSONB, nullable=True)  # GPS coordinates, IP address
-    # check_out_location = Column(JSONB, nullable=True)
+    # check_in_location = Column(JSON, nullable=True)  # GPS coordinates, IP address
+    # check_out_location = Column(JSON, nullable=True)
     # notes = Column(Text, nullable=True)  # Staff or admin notes
     
     # System tracking
@@ -148,6 +156,15 @@ class AttendanceRecord(Base):
     # Relationships
     company = relationship("Companies", back_populates="attendance_records")
     staff = relationship("CompanyStaffs", back_populates="attendance_records")
+
+    def company_uuid(self) -> uuid.UUID:
+        """Return company_id as UUID object."""
+        return str_to_uuid(self.company_id)
+    
+    def staff_uuid(self) -> uuid.UUID:
+        """Return staff_id as UUID object."""
+        return str_to_uuid(self.staff_id)
+
     
     # def calculate_work_hours(self):
     #     """Calculate total work hours and overtime"""
@@ -198,9 +215,9 @@ class AttendanceRecord(Base):
 # class LeaveRequest(Base):
 #     __tablename__ = "leave_requests"
     
-#     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
-#     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
-#     staff_id = Column(UUID(as_uuid=True), ForeignKey("company_staffs.id"), nullable=False, index=True)
+    # id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
     
 #     # Leave details
 #     leave_type = Column(Enum(LeaveType), nullable=False, index=True)
@@ -211,12 +228,12 @@ class AttendanceRecord(Base):
     
 #     # Approval workflow
 #     status = Column(String(20), default="pending", index=True)  # pending, approved, rejected
-#     approved_by = Column(UUID(as_uuid=True), ForeignKey("company_staffs.id"), nullable=True)
+#     approved_by = Column(String(36), ForeignKey("company_staffs.id"), nullable=True)
 #     approved_at = Column(DateTime(timezone=True), nullable=True)
 #     rejection_reason = Column(Text, nullable=True)
     
 #     # Supporting documents
-#     documents = Column(JSONB, nullable=True)  # URLs to uploaded documents
+#     documents = Column(JSON, nullable=True)  # URLs to uploaded documents
     
 #     # System tracking
 #     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
@@ -231,9 +248,9 @@ class AttendanceRecord(Base):
 #     """Monthly attendance summary for reporting and analytics"""
 #     __tablename__ = "attendance_summaries"
     
-#     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4, unique=True, index=True)
-#     company_id = Column(UUID(as_uuid=True), ForeignKey("companies.id"), nullable=False, index=True)
-#     staff_id = Column(UUID(as_uuid=True), ForeignKey("company_staffs.id"), nullable=False, index=True)
+    # id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
     
 #     # Period
 #     year = Column(Integer, nullable=False, index=True)

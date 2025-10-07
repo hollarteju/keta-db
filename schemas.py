@@ -2,7 +2,7 @@ from pydantic import BaseModel, EmailStr, field_validator
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime, date
-from typing import Literal, Dict
+from typing import Literal, Dict, Any
 
 
 
@@ -38,6 +38,9 @@ class CreateCompany(BaseModel):
     password: str
 
 class ResendCompanyCode(BaseModel):
+    email: EmailStr 
+
+class ResendStaffCode(BaseModel):
     email: EmailStr 
 
 class CompanyResponse(BaseModel):
@@ -143,6 +146,9 @@ class Permissions(BaseModel):
     integrations_api: IntegrationsApi
     commission_management: CommissionManagement
     notification_management: NotificationManagement
+
+    def to_dict(self) -> Dict[str, Any]:
+        return self.model_dump()
 
 class StaffCreate(BaseModel):
     company_id: UUID
@@ -260,14 +266,14 @@ class AttendanceRecordResponse(BaseModel):
 class StaffResponse(BaseModel):
     id: UUID
     full_name: str
-    email: str
-    profile_pic: str
-    phone_number: str
-    job_title: str
-    department: str
-    role: str
-    accept_invitation: str
-    is_active: bool
+    email: Optional[str]
+    profile_pic: Optional[str]
+    phone_number: Optional[str]
+    job_title: Optional[str]
+    department: Optional[str]
+    role: Optional[str]
+    accept_invitation: Optional[bool]
+    is_active: Optional[bool]
     created_at: datetime
     attendance_records: List[AttendanceRecordResponse] = None
 

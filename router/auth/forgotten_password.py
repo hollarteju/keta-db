@@ -37,7 +37,7 @@ async def forgotten_password_reset_email(email: str, db: AsyncSession = Depends(
     await db.commit()
     await db.refresh(existing_company_email)
 
-    await send_email(existing_company_email.email, str(token), "forgotten_password.html")
+    await send_email(existing_company_email.email, str(token), "company_verification")
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,
