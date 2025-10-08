@@ -35,10 +35,10 @@ async def check_in(data: AttendanceCheckInRequest, db: AsyncSession = Depends(ge
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Staff already checked in today"
             )
-
+        
         new_record = AttendanceRecord(
-            staff_id=str_to_uuid(data.staff_id),     # ✅ stored as str
-            company_id=str_to_uuid(data.company_id), # ✅ stored as str
+            staff_id=uuid_to_str(data.staff_id),     # ✅ stored as str
+            company_id=uuid_to_str(data.company_id), # ✅ stored as str
             attendance_date=today,
             check_in_time=datetime.utcnow()
         )
