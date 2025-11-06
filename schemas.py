@@ -294,6 +294,7 @@ class TaskAttachment(BaseModel):
 class TaskStatus(str, Enum):
     pending = "pending"
     completed = "completed"
+    ongoing = "ongoing"
     overdue = "overdue"
 
 

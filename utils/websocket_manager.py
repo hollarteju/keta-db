@@ -3,47 +3,58 @@ from fastapi import WebSocket
 
 class ConnectionManager:
     """
-    Manages active WebSocket connections for multiple staff members.
+    Handles real-time location rooms per company.
+    Each company room has staff and admin connections.
+    Staff send location updates.
+    Admins receive those updates in real-time.
     """
 
     def __init__(self):
-        # A dictionary that maps staff_id to a list of active WebSocket connections
-        self.active_connections: Dict[str, List[WebSocket]] = {}
+        # { company_id: { "staff": {staff_id: websocket}, "admins": [websocket], "locations": {staff_id: location_data} } }
+        self.rooms: Dict[str, Dict] = {}
 
-    async def connect(self, staff_id: str, websocket: WebSocket):
-        """
-        Accepts a new websocket connection and stores it under the staff_id.
-        """
+    async def connect_staff(self, company_id: str, staff_id: str, websocket: WebSocket):
         await websocket.accept()
-        if staff_id not in self.active_connections:
-            self.active_connections[staff_id] = []
-        self.active_connections[staff_id].append(websocket)
-        print(f"✅ Staff {staff_id} connected. Total connections: {len(self.active_connections[staff_id])}")
+        if company_id not in self.rooms:
+            self.rooms[company_id] = {"staff": {}, "admins": [], "locations": {}}
+        self.rooms[company_id]["staff"][staff_id] = websocket
+        print(f"✅ Staff {staff_id} connected to company {company_id}")
 
-    def disconnect(self, staff_id: str, websocket: WebSocket):
-        """
-        Removes a websocket connection when a client disconnects.
-        """
-        if staff_id in self.active_connections:
-            self.active_connections[staff_id].remove(websocket)
-            if not self.active_connections[staff_id]:
-                del self.active_connections[staff_id]
-            print(f"❌ Staff {staff_id} disconnected.")
+    def disconnect_staff(self, company_id: str, staff_id: str):
+        if company_id in self.rooms and staff_id in self.rooms[company_id]["staff"]:
+            del self.rooms[company_id]["staff"][staff_id]
+            self.rooms[company_id]["locations"].pop(staff_id, None)
+            print(f"❌ Staff {staff_id} disconnected from {company_id}")
 
-    async def send_personal_message(self, staff_id: str, message: dict):
-        """
-        Sends a direct message to all of a specific staff member's connections.
-        (Useful if a staff logs in from multiple devices)
-        """
-        if staff_id in self.active_connections:
-            for conn in self.active_connections[staff_id]:
-                await conn.send_json(message)
+    async def connect_admin(self, company_id: str, websocket: WebSocket):
+        await websocket.accept()
+        if company_id not in self.rooms:
+            self.rooms[company_id] = {"staff": {}, "admins": [], "locations": {}}
+        self.rooms[company_id]["admins"].append(websocket)
+        print(f"👑 Admin joined company {company_id}")
 
-    async def broadcast(self, staff_id: str, message: dict):
+    def disconnect_admin(self, company_id: str, websocket: WebSocket):
+        if company_id in self.rooms and websocket in self.rooms[company_id]["admins"]:
+            self.rooms[company_id]["admins"].remove(websocket)
+            print(f"❌ Admin left company {company_id}")
+
+    async def update_location(self, company_id: str, staff_id: str, data: dict):
         """
-        Broadcasts a message to all subscribers related to a specific staff_id.
-        (e.g., for admin dashboards tracking multiple staff)
+        Update staff location in memory and notify all admins.
         """
-        if staff_id in self.active_connections:
-            for conn in self.active_connections[staff_id]:
-                await conn.send_json(message)
+        if company_id in self.rooms:
+            self.rooms[company_id]["locations"][staff_id] = data
+            for admin_ws in self.rooms[company_id]["admins"]:
+                await admin_ws.send_json({
+                    "staff_id": staff_id,
+                    "location": data
+                })
+
+    def get_staff_location(self, company_id: str, staff_id: str):
+        """
+        Returns the latest known location for a staff (if any).
+        """
+        room = self.rooms.get(company_id)
+        if not room:
+            return None
+        return room["locations"].get(staff_id)

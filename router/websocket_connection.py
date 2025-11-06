@@ -10,34 +10,49 @@ manager = ConnectionManager()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 
 
-@router.websocket("/ws/location/{staff_id}")
-async def location_updates(websocket: WebSocket, staff_id: str):
-    print("it works")
-    print(f"Incoming connection from staff_id={staff_id}")
-    await manager.connect(staff_id, websocket)
+@router.websocket("/ws/staff/{company_id}/{staff_id}")
+async def staff_location_ws(websocket: WebSocket, company_id: str, staff_id: str):
+    await manager.connect_staff(company_id, staff_id, websocket)
+    try:
+        while True:
+            data = await websocket.receive_json()
+            latitude = data.get("latitude")
+            longitude = data.get("longitude")
+
+            location_data = {
+                "latitude": latitude,
+                "longitude": longitude,
+                "timestamp": data.get("timestamp")
+            }
+
+            # Update location and notify admins
+            await manager.update_location(company_id, staff_id, location_data)
+
+    except WebSocketDisconnect:
+        manager.disconnect_staff(company_id, staff_id)
+
+
+@router.websocket("/ws/admin/{company_id}")
+async def admin_ws(websocket: WebSocket, company_id: str):
+    await manager.connect_admin(company_id, websocket)
     try:
         while True:
             data = await websocket.receive_text()
+            # Optionally handle requests like “get staff location”
             payload = json.loads(data)
-            latitude = payload.get("latitude")
-            longitude = payload.get("longitude")
+            staff_id = payload.get("staff_id")
 
-            location_details = get_location_details(latitude, longitude, GOOGLE_API_KEY)
-
-            response = {
-                "staff_id": staff_id,
-                "latitude": latitude,
-                "longitude": longitude,
-                "location": location_details,
-            }
-
-            await websocket.send_json({
-                "status": "success",
-                "message": "Location updated successfully",
-                **response
-            })
-
-            await manager.broadcast(staff_id, response)
-            await asyncio.sleep(10)
+            staff_location = manager.get_staff_location(company_id, staff_id)
+            if staff_location:
+                await websocket.send_json({
+                    "status": "success",
+                    "staff_id": staff_id,
+                    "location": staff_location
+                })
+            else:
+                await websocket.send_json({
+                    "status": "error",
+                    "message": f"Staff {staff_id} not online or no location found."
+                })
     except WebSocketDisconnect:
-        manager.disconnect(staff_id, websocket)
+        manager.disconnect_admin(company_id, websocket)

@@ -191,7 +191,7 @@ async def change_task_status(
     try:
         # ✅ Validate status input
         new_status = payload.get("status")
-        allowed_status = ["pending", "completed", "overdue"]
+        allowed_status = ["pending", "completed", "ongoing", "overdue"]
 
         if not new_status or new_status not in allowed_status:
             raise HTTPException(
