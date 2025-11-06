@@ -29,6 +29,19 @@ class LeaveType(PyEnum):
     MATERNITY = "maternity"
     PATERNITY = "paternity"
 
+
+class TaskPriority(PyEnum):
+    IMPORTANT = "important"
+    NORMAL = "normal"
+    LOW = "low"
+
+class TaskStatus(PyEnum):
+    pending = "pending"
+    completed = "completed"
+    overdue = "overdue"
+
+
+
 class Companies(Base):
     __tablename__ = "companies"
     
@@ -164,6 +177,42 @@ class AttendanceRecord(Base):
     def staff_uuid(self) -> uuid.UUID:
         """Return staff_id as UUID object."""
         return str_to_uuid(self.staff_id)
+    
+
+
+class Tasks(Base):
+    __tablename__ = "tasks"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+
+    # Optional: Link to a company or staff member
+    company_id = Column(String(36), ForeignKey("companies.id"), nullable=True, index=True)
+    staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=True, index=True)
+
+    # Task details
+    task_title = Column(String(150), nullable=False, index=True)
+    task_type = Column(String(100), nullable=False, index=True)
+    customer_name = Column(String(100), nullable=False, index=True)
+    customer_phone = Column(String(20), nullable=False, index=True)
+    description = Column(Text, nullable=True)
+    location = Column(String(255), nullable=True)
+    date = Column(Date, nullable=False, index=True)
+    time = Column(Time, nullable=True, index=True)
+    priority = Column(Enum(TaskPriority), nullable=False, default=TaskPriority.NORMAL, index=True)
+    attachment = Column(JSON, nullable=True)  # Can store multiple file URLs or metadata
+    status = Column(Enum(TaskStatus), default=TaskStatus.pending, nullable=False)
+
+    # System tracking
+    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+    # Relationships
+    company = relationship("Companies", backref="tasks", lazy="joined")
+    staff = relationship("CompanyStaffs", backref="tasks", lazy="joined")
+
+    def __repr__(self):
+        return f"<Task(title='{self.task_title}', type='{self.task_type}', priority='{self.priority.value}')>"
+
 
     
     # def calculate_work_hours(self):

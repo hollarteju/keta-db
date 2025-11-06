@@ -10,8 +10,13 @@ from router.auth import login
 from router.company import get_all_companies, onboarding
 from router.staffs.auth import staff_login 
 from router.staffs.attendance import attendance
+from router.task_management import tasks
 from router.refresh_token import refresh_token
+from router.places import places
+from router.tracks import tracks
 from database import clear_alembic_version, reset_db
+from router.websocket_connection import router as websocket_router
+
 
 load_dotenv()
 
@@ -39,9 +44,9 @@ app.include_router(update_company.router)
 app.include_router(refresh_token.router)
 app.include_router(onboarding.router)
 app.include_router(attendance.router)
-# app.include_router(get_all_tasks.router)
-# app.include_router(get_task.router)
-# app.include_router(get_pick_tasks.router)
+app.include_router(tasks.router)
+app.include_router(places.router)
+app.include_router(websocket_router)
 # app.include_router(submit_task.router)
 # app.include_router(get_submit_tasks.router)
 # app.include_router(profile_picture.router)

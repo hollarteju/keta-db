@@ -1,8 +1,9 @@
-from pydantic import BaseModel, EmailStr, field_validator
-from typing import Optional, List
+from pydantic import BaseModel, EmailStr, field_validator, Field
+from typing import Optional, List, Any
 from uuid import UUID
-from datetime import datetime, date
+from datetime import datetime, date, time as dtime
 from typing import Literal, Dict, Any
+from enum import Enum
 
 
 
@@ -278,3 +279,67 @@ class StaffResponse(BaseModel):
     attendance_records: List[AttendanceRecordResponse] = None
 
     model_config = {"from_attributes": True}
+
+
+class TaskPriority(str, Enum):
+    IMPORTANT = "important"
+    NORMAL = "normal"
+    LOW = "low"
+
+
+class TaskAttachment(BaseModel):
+    file_name: str
+    url: str
+
+class TaskStatus(str, Enum):
+    pending = "pending"
+    completed = "completed"
+    overdue = "overdue"
+
+
+class TaskCreate(BaseModel):
+    company_id: Optional[UUID] = None
+    staff_id: Optional[UUID] = None
+    task_title: str = Field(..., max_length=150)
+    task_type: str = Field(..., max_length=100)
+    customer_name: str
+    customer_phone: str
+    description: Optional[str] = None
+    location: Optional[str] = None
+    date: date
+    time: Optional[dtime] = None
+    priority: TaskPriority = TaskPriority.NORMAL
+    attachment: Optional[List[str]] = []
+    status: Optional[TaskStatus] = TaskStatus.pending
+
+
+class TaskResponse(BaseModel):
+    id: UUID
+    task_title: str
+    task_type: str
+    customer_name: str
+    customer_phone: str
+    description: Optional[str]
+    location: Optional[str]
+    date: date
+    time: Optional[dtime]
+    priority: str
+    attachment: Optional[List[str]] = []
+    status: TaskStatus
+
+    class Config:
+        orm_mode = True
+
+
+class EditTask(BaseModel):
+    task_title: str = Field(..., max_length=150)
+    task_type: str = Field(..., max_length=100)
+    customer_name: str
+    customer_phone: str
+    description: Optional[str] = None
+    location: Optional[str] = None
+    date: date
+    time: Optional[dtime] = None
+    priority: TaskPriority = TaskPriority.NORMAL
+    attachment: Optional[List[str]] = []
+
