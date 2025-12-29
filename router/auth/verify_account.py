@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy.ext.asyncio import AsyncSession
-from models import Companies
+from models import User
 from database import get_db
 from sqlalchemy.future import select
 from uuid import UUID
@@ -11,50 +11,50 @@ from utils.uuid_convert import uuid_to_str, str_to_uuid
 
 router = APIRouter(
     prefix="/api/v1",
-    tags=["companies"]
+    tags=["users"]
 )
 
-@router.post("/companies/verify_email")
+@router.post("/user/verify_email")
 async def verify_account(id: UUID, token:str, db: AsyncSession = Depends(get_db)):
     try:
         
-        result = await db.execute(select(Companies).filter(Companies.id == uuid_to_str(id)))  
-        company = result.scalar_one_or_none()
+        result = await db.execute(select(User).filter(User.id == uuid_to_str(id)))  
+        user = result.scalar_one_or_none()
 
-        if not company:
+        if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="company not found"
+                detail="user not found"
             )
 
-        if company.verified_email:
+        if user.verified_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="company is already verified"
+                detail="user is already verified"
             )
        
         try:
-            company.validate_token(token)
+            user.validate_token(token)
         except ValueError as e:
             raise HTTPException(
                 status_code=status.HTTP_406_NOT_ACCEPTABLE,
                 detail=str(e)
             )
 
-        company.verified_email = True
-        company.token = None
-        company.token_expires_at = None
+        user.verified_email = True
+        user.token = None
+        user.token_expires_at = None
         
         await db.commit()
-        await db.refresh(company)
+        await db.refresh(user)
 
         return JSONResponse(
             status_code=status.HTTP_200_OK,
-            content={"message": "company's email account successfully verified"}
+            content={"message": "user's email account successfully verified"}
         )
 
     except Exception as e:
                 raise HTTPException(
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                    detail=f"Unexpected error during company registration: {e}."
+                    detail=f"Unexpected error during user registration: {e}."
                 )

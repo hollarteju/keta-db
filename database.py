@@ -85,7 +85,7 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
 
 # Function to refresh the access token using the refresh token
 async def refresh_access_token(refresh_token: str):
-    from models import Companies
+    from models import User
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -101,7 +101,7 @@ async def refresh_access_token(refresh_token: str):
 
         # 🔍 Load user from database
         async with AsyncSessionLocal() as db:
-            query = await db.execute(select(Companies).where(Companies.id == user_id))
+            query = await db.execute(select(User).where(User.id == user_id))
             user = query.scalars().first()
 
             if not user:
@@ -112,8 +112,6 @@ async def refresh_access_token(refresh_token: str):
                 "id": str(user.id),
                 "email": user.email,
                 "phone_number": user.phone_number,
-                "company_industry": user.company_industry,
-                "company_name": user.company_name,
                 "address" : user.address,
                 "country" : user.country,
                 "verified_email" : user.verified_email,

@@ -34,7 +34,7 @@ class companyBase(BaseModel):
     token: Optional[str] = None
     token_expire_at: Optional[str] = None
 
-class CreateCompany(BaseModel):
+class CreateUser(BaseModel):
     email: EmailStr  
     password: str
 
@@ -44,7 +44,7 @@ class ResendCompanyCode(BaseModel):
 class ResendStaffCode(BaseModel):
     email: EmailStr 
 
-class CompanyResponse(BaseModel):
+class UserResponse(BaseModel):
     id: UUID
     email: EmailStr
     created_at: Optional[datetime]
@@ -53,10 +53,10 @@ class CompanyResponse(BaseModel):
         "from_attributes": True
     }
 
-class RegisterCompanyResponse(BaseModel):
+class RegisterUserResponse(BaseModel):
     status: str
     message: str
-    company: CompanyResponse
+    company: UserResponse
 
 
 class EmailSchema(BaseModel):
@@ -75,9 +75,8 @@ class LoginScheme(BaseModel):
     email: str
     password: str
 
-class UpdateCompany(BaseModel):
+class UpdateUser(BaseModel):
     company_name: Optional[str]
-    company_industry: Optional[str]
     phone_number: Optional[str]
     address: Optional[str]
     country: Optional[str]
@@ -85,10 +84,10 @@ class UpdateCompany(BaseModel):
     class Config:
         from_attributes = True
 
-class UpdateCompanyResponse(BaseModel):
+class UpdateUserResponse(BaseModel):
     status: str
     message: str
-    company: UpdateCompany
+    company: UpdateUser
 
 class CoreDashboardReport(BaseModel):
     view_dashboard: bool = False

@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import Companies
+from models import User
 from schemas import Token, TokenRefreshRequest
 from database import get_db, refresh_access_token
 

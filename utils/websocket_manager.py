@@ -6,7 +6,7 @@ class ConnectionManager:
     Handles real-time location rooms per company.
     Each company room has staff and admin connections.
     Staff send location updates.
-    Admins receive those updates in real-time.
+    Admins receive those updates in real-time or via commands.
     """
 
     def __init__(self):
@@ -58,3 +58,12 @@ class ConnectionManager:
         if not room:
             return None
         return room["locations"].get(staff_id)
+
+    def get_all_staff_locations(self, company_id: str):
+        """
+        Returns all staff locations for a company.
+        """
+        room = self.rooms.get(company_id)
+        if not room:
+            return {}
+        return room["locations"]

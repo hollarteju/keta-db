@@ -2,8 +2,8 @@ from uuid import UUID
 from sqlalchemy import update
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.future import select
-from models import Companies
-from schemas import UpdateCompanyResponse, UpdateCompany
+from models import User
+from schemas import UpdateUserResponse, UpdateUser
 from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db
 from utils.uuid_convert import uuid_to_str, str_to_uuid
@@ -11,43 +11,43 @@ from utils.uuid_convert import uuid_to_str, str_to_uuid
 
 router = APIRouter(
     prefix="/api/v1",
-    tags=["companies"]
+    tags=["users"]
 )
 
-@router.put("/update/{company_id}")
-async def update_company(company_id: UUID, company_data: UpdateCompany, db: AsyncSession = Depends(get_db)):
+@router.put("/update/{user_id}")
+async def update_user(user_id: UUID, user_data: UpdateUser, db: AsyncSession = Depends(get_db)):
     try:
-        result = await db.execute(select(Companies).where(Companies.id == uuid_to_str(company_id)))
-        company = result.scalar_one_or_none()
+        result = await db.execute(select(User).where(User.id == uuid_to_str(user_id)))
+        user = result.scalar_one_or_none()
 
-        if not company:
+        if not user:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail="Company not found"
+                detail="user not found"
             )
         
 
-        if not company.verified_email:
+        if not user.verified_email:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Email not verified. Please verify your email before updating your company details."
+                detail="Email not verified. Please verify your email before updating your user details."
             )
 
-        for field, value in company_data.model_dump(exclude_unset=True).items():
-            setattr(company, field, value)
+        for field, value in user_data.model_dump(exclude_unset=True).items():
+            setattr(user, field, value)
 
 
         await db.commit()
-        await db.refresh(company)
+        await db.refresh(user)
 
         return {
             "status": "success",
-            "message": "Company updated successfully",
-            "company": company
+            "message": "user updated successfully",
+            "user": user
         }
 
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to update company: {e}"
+            detail=f"Failed to update user: {e}"
         )

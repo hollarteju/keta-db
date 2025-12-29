@@ -39,17 +39,17 @@ class TaskStatus(PyEnum):
     pending = "pending"
     completed = "completed"
     overdue = "overdue"
+    ongoing = "ongoing"
 
 
 
-class Companies(Base):
-    __tablename__ = "companies"
+class User(Base):
+    __tablename__ = "users"
     
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
-    company_name = Column(String(100), index=True, nullable=True)
-    company_industry = Column(String(100), index=True, nullable=True)
+    full_name = Column(String(100), index=True, nullable=True)
     phone_number = Column(String(20), nullable=True, index=True)
     address = Column(String(255), nullable=True, index=True)
     country = Column(String(100), nullable=True, index=True)
@@ -60,16 +60,7 @@ class Companies(Base):
     token = Column(String(225), unique=True, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
-    
-    # Work schedule settings
-    # default_work_start_time = Column(Time, default=time(8, 0))  # 8:00 AM
-    # default_work_end_time = Column(Time, default=time(17, 0))   # 5:00 PM
-    # grace_period_minutes = Column(Integer, default=15)  # 15 minutes late tolerance
-    
-    # Relationships
-    company_staffs = relationship("CompanyStaffs", back_populates="companies", cascade="all, delete-orphan")
-    attendance_records = relationship("AttendanceRecord", back_populates="company", cascade="all, delete-orphan")
-    # leave_requests = relationship("LeaveRequest", back_populates="company", cascade="all, delete-orphan")
+
     
     def verify_password(self, plain_password: str) -> bool:
         return pwd_context.verify(plain_password, self.password)
@@ -85,133 +76,133 @@ class Companies(Base):
             raise ValueError("Verification token has expired")
     
 
-class CompanyStaffs(Base):
-    __tablename__ = "company_staffs"
+# class CompanyStaffs(Base):
+#     __tablename__ = "company_staffs"
     
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
-    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False)
-    full_name = Column(String(100), nullable=False, index=True)
-    email = Column(String(255), unique=True, nullable=False, index=True)
-    password = Column(String(255), nullable=False, index=True)
-    phone_number = Column(String(20), nullable=False, index=True)
-    job_title = Column(String(100), nullable=False, index=True)
-    department = Column(String(100), nullable=False, index=True)
-    profile_pic = Column(String(225), nullable=True, index=True)
-    role = Column(String(100), nullable=False, index=True)
-    permissions = Column(JSON, nullable=False, index=True, default={})
-    accept_invitation = Column(Boolean, default=False)  # Fixed syntax
-    token = Column(String(225), nullable=True)
-    token_expires_at = Column(DateTime, nullable=True)
-    created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
+#     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False)
+#     full_name = Column(String(100), nullable=False, index=True)
+#     email = Column(String(255), unique=True, nullable=False, index=True)
+#     password = Column(String(255), nullable=False, index=True)
+#     phone_number = Column(String(20), nullable=False, index=True)
+#     job_title = Column(String(100), nullable=False, index=True)
+#     department = Column(String(100), nullable=False, index=True)
+#     profile_pic = Column(String(225), nullable=True, index=True)
+#     role = Column(String(100), nullable=False, index=True)
+#     permissions = Column(JSON, nullable=False, index=True, default={})
+#     accept_invitation = Column(Boolean, default=False)  # Fixed syntax
+#     token = Column(String(225), nullable=True)
+#     token_expires_at = Column(DateTime, nullable=True)
+#     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
     
-    # Staff-specific work schedule (overrides company defaults if set)
-    # work_start_time = Column(Time, nullable=True)  # Custom start time
-    # work_end_time = Column(Time, nullable=True)    # Custom end time
+#     # Staff-specific work schedule (overrides company defaults if set)
+#     # work_start_time = Column(Time, nullable=True)  # Custom start time
+#     # work_end_time = Column(Time, nullable=True)    # Custom end time
 
-    is_active = Column(Boolean, default=True, index=True)
+#     is_active = Column(Boolean, default=True, index=True)
     
-    # Relationships
-    companies = relationship("Companies", back_populates="company_staffs")
-    attendance_records = relationship("AttendanceRecord", back_populates="staff", cascade="all, delete-orphan")
-    # leave_requests = relationship("LeaveRequest", back_populates="staff", cascade="all, delete-orphan")
+#     # Relationships
+#     companies = relationship("Companies", back_populates="company_staffs")
+#     attendance_records = relationship("AttendanceRecord", back_populates="staff", cascade="all, delete-orphan")
+#     # leave_requests = relationship("LeaveRequest", back_populates="staff", cascade="all, delete-orphan")
     
-    def validate_token(self, token: str):
-        if self.token != token:
-            raise ValueError("Invalid verification token")
-        elif self.token_expires_at is None or self.token_expires_at < datetime.utcnow():
-            raise ValueError("Verification token has expired")
+#     def validate_token(self, token: str):
+#         if self.token != token:
+#             raise ValueError("Invalid verification token")
+#         elif self.token_expires_at is None or self.token_expires_at < datetime.utcnow():
+#             raise ValueError("Verification token has expired")
     
-    # def get_work_schedule(self):
-    #     """Get effective work schedule (staff-specific or company default)"""
-    #     company = self.companies
-    #     return {
-    #         'start_time': self.work_start_time or company.default_work_start_time,
-    #         'end_time': self.work_end_time or company.default_work_end_time,
-    #         'grace_period': company.grace_period_minutes
-    #     }
-    def company_uuid(self) -> uuid.UUID:
-        return str_to_uuid(self.company_id)
-
-
-class AttendanceRecord(Base):
-    __tablename__ = "attendance_records"
-    
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
-    company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
-    staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
-    
-    # Date and time tracking
-    attendance_date = Column(Date, nullable=False, index=True)
-    check_in_time = Column(DateTime(timezone=True), nullable=True)
-    check_out_time = Column(DateTime(timezone=True), nullable=True)
-    
-    # Status and calculations
-    # status = Column(Enum(AttendanceStatus), nullable=False, default=AttendanceStatus.ABSENT, index=True)
-    # is_late = Column(Boolean, default=False, index=True)
-    # late_minutes = Column(Integer, default=0)
-    # early_departure = Column(Boolean, default=False, index=True)
-    # early_departure_minutes = Column(Integer, default=0)
-    
-    # Work hours calculation
-    # total_work_hours = Column(Integer, nullable=True)  # in minutes
-    # break_time_minutes = Column(Integer, default=0)
-    # overtime_minutes = Column(Integer, default=0)
-    
-    # Additional information
-    # check_in_location = Column(JSON, nullable=True)  # GPS coordinates, IP address
-    # check_out_location = Column(JSON, nullable=True)
-    # notes = Column(Text, nullable=True)  # Staff or admin notes
-    
-    # System tracking
-    created_at = Column(DateTime(timezone=True), default=func.now())
-    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
-    
-    # Relationships
-    company = relationship("Companies", back_populates="attendance_records")
-    staff = relationship("CompanyStaffs", back_populates="attendance_records")
-
-    def company_uuid(self) -> uuid.UUID:
-        """Return company_id as UUID object."""
-        return str_to_uuid(self.company_id)
-    
-    def staff_uuid(self) -> uuid.UUID:
-        """Return staff_id as UUID object."""
-        return str_to_uuid(self.staff_id)
-    
+#     # def get_work_schedule(self):
+#     #     """Get effective work schedule (staff-specific or company default)"""
+#     #     company = self.companies
+#     #     return {
+#     #         'start_time': self.work_start_time or company.default_work_start_time,
+#     #         'end_time': self.work_end_time or company.default_work_end_time,
+#     #         'grace_period': company.grace_period_minutes
+#     #     }
+#     def company_uuid(self) -> uuid.UUID:
+#         return str_to_uuid(self.company_id)
 
 
-class Tasks(Base):
-    __tablename__ = "tasks"
+# class AttendanceRecord(Base):
+#     __tablename__ = "attendance_records"
+    
+#     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
+#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
+    
+#     # Date and time tracking
+#     attendance_date = Column(Date, nullable=False, index=True)
+#     check_in_time = Column(DateTime(timezone=True), nullable=True)
+#     check_out_time = Column(DateTime(timezone=True), nullable=True)
+    
+#     # Status and calculations
+#     # status = Column(Enum(AttendanceStatus), nullable=False, default=AttendanceStatus.ABSENT, index=True)
+#     # is_late = Column(Boolean, default=False, index=True)
+#     # late_minutes = Column(Integer, default=0)
+#     # early_departure = Column(Boolean, default=False, index=True)
+#     # early_departure_minutes = Column(Integer, default=0)
+    
+#     # Work hours calculation
+#     # total_work_hours = Column(Integer, nullable=True)  # in minutes
+#     # break_time_minutes = Column(Integer, default=0)
+#     # overtime_minutes = Column(Integer, default=0)
+    
+#     # Additional information
+#     # check_in_location = Column(JSON, nullable=True)  # GPS coordinates, IP address
+#     # check_out_location = Column(JSON, nullable=True)
+#     # notes = Column(Text, nullable=True)  # Staff or admin notes
+    
+#     # System tracking
+#     created_at = Column(DateTime(timezone=True), default=func.now())
+#     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+    
+#     # Relationships
+#     company = relationship("Companies", back_populates="attendance_records")
+#     staff = relationship("CompanyStaffs", back_populates="attendance_records")
 
-    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+#     def company_uuid(self) -> uuid.UUID:
+#         """Return company_id as UUID object."""
+#         return str_to_uuid(self.company_id)
+    
+#     def staff_uuid(self) -> uuid.UUID:
+#         """Return staff_id as UUID object."""
+#         return str_to_uuid(self.staff_id)
+    
 
-    # Optional: Link to a company or staff member
-    company_id = Column(String(36), ForeignKey("companies.id"), nullable=True, index=True)
-    staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=True, index=True)
 
-    # Task details
-    task_title = Column(String(150), nullable=False, index=True)
-    task_type = Column(String(100), nullable=False, index=True)
-    customer_name = Column(String(100), nullable=False, index=True)
-    customer_phone = Column(String(20), nullable=False, index=True)
-    description = Column(Text, nullable=True)
-    location = Column(String(255), nullable=True)
-    date = Column(Date, nullable=False, index=True)
-    time = Column(Time, nullable=True, index=True)
-    priority = Column(Enum(TaskPriority), nullable=False, default=TaskPriority.NORMAL, index=True)
-    attachment = Column(JSON, nullable=True)  # Can store multiple file URLs or metadata
-    status = Column(Enum(TaskStatus), default=TaskStatus.pending, nullable=False)
+# class Tasks(Base):
+#     __tablename__ = "tasks"
 
-    # System tracking
-    created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+#     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
 
-    # Relationships
-    company = relationship("Companies", backref="tasks", lazy="joined")
-    staff = relationship("CompanyStaffs", backref="tasks", lazy="joined")
+#     # Optional: Link to a company or staff member
+#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=True, index=True)
+#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=True, index=True)
 
-    def __repr__(self):
-        return f"<Task(title='{self.task_title}', type='{self.task_type}', priority='{self.priority.value}')>"
+#     # Task details
+#     task_title = Column(String(150), nullable=False, index=True)
+#     task_type = Column(String(100), nullable=False, index=True)
+#     customer_name = Column(String(100), nullable=False, index=True)
+#     customer_phone = Column(String(20), nullable=False, index=True)
+#     description = Column(Text, nullable=True)
+#     location = Column(String(255), nullable=True)
+#     date = Column(Date, nullable=False, index=True)
+#     time = Column(Time, nullable=True, index=True)
+#     priority = Column(Enum(TaskPriority), nullable=False, default=TaskPriority.NORMAL, index=True)
+#     attachment = Column(JSON, nullable=True)  # Can store multiple file URLs or metadata
+#     status = Column(Enum(TaskStatus), default=TaskStatus.pending, nullable=False)
+
+#     # System tracking
+#     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+#     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
+
+#     # Relationships
+#     company = relationship("Companies", backref="tasks", lazy="joined")
+#     staff = relationship("CompanyStaffs", backref="tasks", lazy="joined")
+
+#     def __repr__(self):
+#         return f"<Task(title='{self.task_title}', type='{self.task_type}', priority='{self.priority.value}')>"
 
 
     
