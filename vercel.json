@@ -2,11 +2,7 @@
   "builds": [
     {
       "src": "main.py",
-      "use": "@vercel/python",
-      "config": {
-        "runtime": "python3.12.2",
-        "nodeVersion": "18.x"
-      }
+      "use": "@vercel/python"
     }
   ],
 
