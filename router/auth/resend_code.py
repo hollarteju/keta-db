@@ -24,7 +24,7 @@ async def resend_verification_email(company: ResendCompanyCode, db: AsyncSession
     if not existing_user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="company not found"
+            detail="user not found"
         )
 
     if existing_user.verified_email:
@@ -33,7 +33,7 @@ async def resend_verification_email(company: ResendCompanyCode, db: AsyncSession
             detail="Your account has been verified"
         )
     
-    token = f"{random.randint(0, 9999):04}"
+    token = f"{random.randrange(10**5):05}"
     token_expires_at = datetime.utcnow() + timedelta(minutes=10)
 
     existing_user.token = token
@@ -43,7 +43,8 @@ async def resend_verification_email(company: ResendCompanyCode, db: AsyncSession
     await db.refresh(existing_user)
 
     
-    await send_email(existing_user.email, str(token), "company_verification")
+    print(token)
+    await send_email(existing_user.email, str(token), "keta-sign-up")
     
     return JSONResponse(
         status_code=status.HTTP_200_OK,

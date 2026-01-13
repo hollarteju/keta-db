@@ -35,6 +35,7 @@ class companyBase(BaseModel):
     token_expire_at: Optional[str] = None
 
 class CreateUser(BaseModel):
+    full_name: str
     email: EmailStr  
     password: str
 
@@ -46,6 +47,7 @@ class ResendStaffCode(BaseModel):
 
 class UserResponse(BaseModel):
     id: UUID
+    full_name: str
     email: EmailStr
     created_at: Optional[datetime]
 

@@ -1,11 +1,15 @@
 import uuid
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON
+from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
-from sqlalchemy.sql import func
+from sqlalchemy.sql import select, func
+
 from passlib.context import CryptContext
 from datetime import datetime, date, time, timedelta
 from enum import Enum as PyEnum
+from sqlalchemy.ext.asyncio import AsyncSession
+
+
 
 
 
@@ -14,32 +18,44 @@ def str_to_uuid(value: str) -> uuid.UUID:
     """Convert string to UUID if value is not None/empty."""
     return uuid.UUID(value) if value else None
 
-class AttendanceStatus(PyEnum):
-    PRESENT = "present"
-    ABSENT = "absent"
-    LATE = "late"
-    EARLY_DEPARTURE = "early_departure"
-    ON_LEAVE = "on_leave"
-
-class LeaveType(PyEnum):
-    SICK = "sick"
-    VACATION = "vacation"
-    PERSONAL = "personal"
-    EMERGENCY = "emergency"
-    MATERNITY = "maternity"
-    PATERNITY = "paternity"
+class TransactionType(PyEnum):
+    BUY = "buy"
+    SELL = "sell"
+    EXCHANGE = "exchange"
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
 
 
-class TaskPriority(PyEnum):
-    IMPORTANT = "important"
-    NORMAL = "normal"
-    LOW = "low"
+class TransactionStatus(PyEnum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+    CANCELLED = "cancelled"
 
-class TaskStatus(PyEnum):
-    pending = "pending"
-    completed = "completed"
-    overdue = "overdue"
-    ongoing = "ongoing"
+
+class WalletType(PyEnum):
+    FIAT = "fiat"
+    CRYPTO = "crypto"
+
+
+class KYCStatus(PyEnum):
+    NOT_SUBMITTED = "not_submitted"
+    PENDING = "pending"
+    VERIFIED = "verified"
+    REJECTED = "rejected"
+
+class LedgerEntryType(PyEnum):
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+    BUY = "buy"
+    SELL = "sell"
+    FEE = "fee"
+
+
+class WalletStatus(PyEnum):
+    ACTIVE = "active"
+    FROZEN = "frozen"
 
 
 
@@ -61,6 +77,9 @@ class User(Base):
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
 
+    wallets = relationship("Wallet", back_populates="user")
+    transactions = relationship("Transaction", back_populates="user")
+
     
     def verify_password(self, plain_password: str) -> bool:
         return pwd_context.verify(plain_password, self.password)
@@ -75,241 +94,188 @@ class User(Base):
         elif self.token_expires_at is None or self.token_expires_at < datetime.utcnow():
             raise ValueError("Verification token has expired")
     
+class Wallet(Base):
+    __tablename__ = "wallets"
 
-# class CompanyStaffs(Base):
-#     __tablename__ = "company_staffs"
-    
-#     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
-#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False)
-#     full_name = Column(String(100), nullable=False, index=True)
-#     email = Column(String(255), unique=True, nullable=False, index=True)
-#     password = Column(String(255), nullable=False, index=True)
-#     phone_number = Column(String(20), nullable=False, index=True)
-#     job_title = Column(String(100), nullable=False, index=True)
-#     department = Column(String(100), nullable=False, index=True)
-#     profile_pic = Column(String(225), nullable=True, index=True)
-#     role = Column(String(100), nullable=False, index=True)
-#     permissions = Column(JSON, nullable=False, index=True, default={})
-#     accept_invitation = Column(Boolean, default=False)  # Fixed syntax
-#     token = Column(String(225), nullable=True)
-#     token_expires_at = Column(DateTime, nullable=True)
-#     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
-    
-#     # Staff-specific work schedule (overrides company defaults if set)
-#     # work_start_time = Column(Time, nullable=True)  # Custom start time
-#     # work_end_time = Column(Time, nullable=True)    # Custom end time
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
 
-#     is_active = Column(Boolean, default=True, index=True)
+    currency = Column(String(10), nullable=False)  # BTC, ETH, USD, NGN
+    wallet_type = Column(Enum(WalletType), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    status = Column(Enum(WalletStatus), default=WalletStatus.ACTIVE)
     
-#     # Relationships
-#     companies = relationship("Companies", back_populates="company_staffs")
-#     attendance_records = relationship("AttendanceRecord", back_populates="staff", cascade="all, delete-orphan")
-#     # leave_requests = relationship("LeaveRequest", back_populates="staff", cascade="all, delete-orphan")
-    
-#     def validate_token(self, token: str):
-#         if self.token != token:
-#             raise ValueError("Invalid verification token")
-#         elif self.token_expires_at is None or self.token_expires_at < datetime.utcnow():
-#             raise ValueError("Verification token has expired")
-    
-#     # def get_work_schedule(self):
-#     #     """Get effective work schedule (staff-specific or company default)"""
-#     #     company = self.companies
-#     #     return {
-#     #         'start_time': self.work_start_time or company.default_work_start_time,
-#     #         'end_time': self.work_end_time or company.default_work_end_time,
-#     #         'grace_period': company.grace_period_minutes
-#     #     }
-#     def company_uuid(self) -> uuid.UUID:
-#         return str_to_uuid(self.company_id)
+    ledger_entries = relationship("LedgerEntry", back_populates="wallet")
+    user = relationship("User", back_populates="wallets")
+    __table_args__ = (
+    UniqueConstraint("user_id", "currency", name="uq_user_currency_wallet"),
+)
 
 
-# class AttendanceRecord(Base):
-#     __tablename__ = "attendance_records"
-    
-#     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
-#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
-#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
-    
-#     # Date and time tracking
-#     attendance_date = Column(Date, nullable=False, index=True)
-#     check_in_time = Column(DateTime(timezone=True), nullable=True)
-#     check_out_time = Column(DateTime(timezone=True), nullable=True)
-    
-#     # Status and calculations
-#     # status = Column(Enum(AttendanceStatus), nullable=False, default=AttendanceStatus.ABSENT, index=True)
-#     # is_late = Column(Boolean, default=False, index=True)
-#     # late_minutes = Column(Integer, default=0)
-#     # early_departure = Column(Boolean, default=False, index=True)
-#     # early_departure_minutes = Column(Integer, default=0)
-    
-#     # Work hours calculation
-#     # total_work_hours = Column(Integer, nullable=True)  # in minutes
-#     # break_time_minutes = Column(Integer, default=0)
-#     # overtime_minutes = Column(Integer, default=0)
-    
-#     # Additional information
-#     # check_in_location = Column(JSON, nullable=True)  # GPS coordinates, IP address
-#     # check_out_location = Column(JSON, nullable=True)
-#     # notes = Column(Text, nullable=True)  # Staff or admin notes
-    
-#     # System tracking
-#     created_at = Column(DateTime(timezone=True), default=func.now())
-#     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
-    
-#     # Relationships
-#     company = relationship("Companies", back_populates="attendance_records")
-#     staff = relationship("CompanyStaffs", back_populates="attendance_records")
+    @staticmethod
+    async def get_wallet_balance(db: AsyncSession, wallet_id: str) -> int:
+        result = await db.execute(
+            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
+            .where(LedgerEntry.wallet_id == wallet_id)
+        )
+        return result.scalar_one()
 
-#     def company_uuid(self) -> uuid.UUID:
-#         """Return company_id as UUID object."""
-#         return str_to_uuid(self.company_id)
-    
-#     def staff_uuid(self) -> uuid.UUID:
-#         """Return staff_id as UUID object."""
-#         return str_to_uuid(self.staff_id)
-    
+    @staticmethod
+    async def debit_wallet(db: AsyncSession, wallet_id: str, amount: int, tx_id: str):
+        if amount <= 0:
+            raise ValueError("Invalid amount")
+
+        async with db.begin():
+            await db.execute(
+                select(Wallet)
+                .where(Wallet.id == wallet_id)
+                .with_for_update()
+            )
+
+            if Wallet.status != WalletStatus.ACTIVE:
+                raise Exception("Wallet is frozen")
+
+            balance = await Wallet.get_wallet_balance(db, wallet_id)
+
+            if balance < amount:
+                raise InsufficientFundsError()
+
+            entry = LedgerEntry(
+                wallet_id=wallet_id,
+                amount=-amount,
+                transaction_id=tx_id,
+                entry_type=LedgerEntryType.WITHDRAWAL  # or BUY, FEE, etc
+            )
 
 
-# class Tasks(Base):
-#     __tablename__ = "tasks"
+            db.add(entry)
 
-#     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
+    @staticmethod
+    async def credit_wallet(db: AsyncSession, wallet_id: str, amount: int, tx_id: str):
+        if amount <= 0:
+            raise ValueError("Invalid amount")
 
-#     # Optional: Link to a company or staff member
-#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=True, index=True)
-#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=True, index=True)
+        async with db.begin():
+            await db.execute(
+                select(Wallet)
+                .where(Wallet.id == wallet_id)
+                .with_for_update()
+            )
 
-#     # Task details
-#     task_title = Column(String(150), nullable=False, index=True)
-#     task_type = Column(String(100), nullable=False, index=True)
-#     customer_name = Column(String(100), nullable=False, index=True)
-#     customer_phone = Column(String(20), nullable=False, index=True)
-#     description = Column(Text, nullable=True)
-#     location = Column(String(255), nullable=True)
-#     date = Column(Date, nullable=False, index=True)
-#     time = Column(Time, nullable=True, index=True)
-#     priority = Column(Enum(TaskPriority), nullable=False, default=TaskPriority.NORMAL, index=True)
-#     attachment = Column(JSON, nullable=True)  # Can store multiple file URLs or metadata
-#     status = Column(Enum(TaskStatus), default=TaskStatus.pending, nullable=False)
-
-#     # System tracking
-#     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-#     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
-
-#     # Relationships
-#     company = relationship("Companies", backref="tasks", lazy="joined")
-#     staff = relationship("CompanyStaffs", backref="tasks", lazy="joined")
-
-#     def __repr__(self):
-#         return f"<Task(title='{self.task_title}', type='{self.task_type}', priority='{self.priority.value}')>"
+            entry = LedgerEntry(
+                wallet_id=wallet_id,
+                amount=-amount,
+                transaction_id=tx_id,
+                entry_type=LedgerEntryType.DEPOSIT  # or BUY, FEE, etc
+            )
 
 
-    
-    # def calculate_work_hours(self):
-    #     """Calculate total work hours and overtime"""
-    #     if not self.check_in_time or not self.check_out_time:
-    #         return
-        
-    #     # Calculate total time worked
-    #     work_duration = self.check_out_time - self.check_in_time
-    #     total_minutes = int(work_duration.total_seconds() / 60)
-        
-    #     # Subtract break time
-    #     actual_work_minutes = total_minutes - self.break_time_minutes
-    #     self.total_work_hours = max(0, actual_work_minutes)
-        
-    #     # Calculate overtime (assuming 8 hours = 480 minutes standard)
-    #     standard_work_minutes = 480
-    #     if actual_work_minutes > standard_work_minutes:
-    #         self.overtime_minutes = actual_work_minutes - standard_work_minutes
-    
-    # def determine_status(self):
-    #     """Determine attendance status based on check-in/out times"""
-    #     if not self.check_in_time:
-    #         self.status = AttendanceStatus.ABSENT
-    #         return
-        
-    #     schedule = self.staff.get_work_schedule()
-    #     scheduled_start = datetime.combine(self.attendance_date, schedule['start_time'])
-    #     scheduled_end = datetime.combine(self.attendance_date, schedule['end_time'])
-        
-    #     # Check if late
-    #     grace_period_end = scheduled_start + timedelta(minutes=schedule['grace_period'])
-    #     if self.check_in_time > grace_period_end:
-    #         self.is_late = True
-    #         self.late_minutes = int((self.check_in_time - scheduled_start).total_seconds() / 60)
-    #         self.status = AttendanceStatus.LATE
-        
-    #     # Check early departure
-    #     if self.check_out_time and self.check_out_time < scheduled_end:
-    #         self.early_departure = True
-    #         self.early_departure_minutes = int((scheduled_end - self.check_out_time).total_seconds() / 60)
-    #         if self.status != AttendanceStatus.LATE:
-    #             self.status = AttendanceStatus.EARLY_DEPARTURE
-        
-    #     # If not late or early departure, mark as present
-    #     if self.status == AttendanceStatus.ABSENT and not self.is_late and not self.early_departure:
-    #         self.status = AttendanceStatus.PRESENT
+            db.add(entry)
 
-# class LeaveRequest(Base):
-#     __tablename__ = "leave_requests"
-    
-    # id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
-#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
-#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
-    
-#     # Leave details
-#     leave_type = Column(Enum(LeaveType), nullable=False, index=True)
-#     start_date = Column(Date, nullable=False, index=True)
-#     end_date = Column(Date, nullable=False, index=True)
-#     total_days = Column(Integer, nullable=False)
-#     reason = Column(Text, nullable=True)
-    
-#     # Approval workflow
-#     status = Column(String(20), default="pending", index=True)  # pending, approved, rejected
-#     approved_by = Column(String(36), ForeignKey("company_staffs.id"), nullable=True)
-#     approved_at = Column(DateTime(timezone=True), nullable=True)
-#     rejection_reason = Column(Text, nullable=True)
-    
-#     # Supporting documents
-#     documents = Column(JSON, nullable=True)  # URLs to uploaded documents
-    
-#     # System tracking
-#     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
-#     updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
-    
-#     # Relationships
-#     company = relationship("Companies", back_populates="leave_requests")
-#     staff = relationship("CompanyStaffs", back_populates="leave_requests")
-#     approver = relationship("CompanyStaffs", foreign_keys=[approved_by])
 
-# class AttendanceSummary(Base):
-#     """Monthly attendance summary for reporting and analytics"""
-#     __tablename__ = "attendance_summaries"
+class InsufficientFundsError(Exception):
+    pass
+
+
+class LedgerEntry(Base):
+    __tablename__ = "ledger_entries"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    wallet_id = Column(String(36), ForeignKey("wallets.id"), nullable=False, index=True)
+    transaction_id = Column(String(36), ForeignKey("transactions.id"), nullable=False, index=True)
+
+    amount = Column(Integer, nullable=False)
+    entry_type = Column(Enum(LedgerEntryType), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("wallet_id", "transaction_id", name="uq_wallet_tx"),
+    )
+
+    wallet = relationship("Wallet", back_populates="ledger_entries")
+    transaction = relationship("Transaction")
+
     
-    # id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()), unique=True, index=True)
-#     company_id = Column(String(36), ForeignKey("companies.id"), nullable=False, index=True)
-#     staff_id = Column(String(36), ForeignKey("company_staffs.id"), nullable=False, index=True)
+
+
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    name = Column(String(50), nullable=False)   # Bitcoin
+    symbol = Column(String(10), nullable=False) # BTC
+    is_crypto = Column(Boolean, default=True)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
+class ExchangeRate(Base):
+    __tablename__ = "exchange_rates"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    from_currency = Column(String(10), nullable=False)
+    to_currency = Column(String(10), nullable=False)
+
+    rate = Column(Integer, nullable=False)  # multiplied rate for precision
+    updated_at = Column(DateTime(timezone=True), default=func.now())
+    __table_args__ = (
+    UniqueConstraint("from_currency", "to_currency", name="uq_currency_pair"),
+)
+
+class GiftCard(Base):
+    __tablename__ = "gift_cards"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    brand = Column(String(100), nullable=False)
+    country = Column(String(50))
+    value = Column(Integer, nullable=False)
+    currency = Column(String(10), nullable=False)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
+
+class Transaction(Base):
+    __tablename__ = "transactions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    type = Column(Enum(TransactionType), nullable=False)
+    status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
+
+    from_currency = Column(String(10))
+    to_currency = Column(String(10))
+
+    from_amount = Column(Integer, nullable=False)
+    to_amount = Column(Integer, nullable=True)
+
+    rate = Column(Integer)
+    reference = Column(String(100), unique=True, index=True)
+
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
     
-#     # Period
-#     year = Column(Integer, nullable=False, index=True)
-#     month = Column(Integer, nullable=False, index=True)
+
+    user = relationship("User", back_populates="transactions")
     
-#     # Summary statistics
-#     total_working_days = Column(Integer, default=0)
-#     days_present = Column(Integer, default=0)
-#     days_absent = Column(Integer, default=0)
-#     days_late = Column(Integer, default=0)
-#     days_on_leave = Column(Integer, default=0)
+
+
+class Withdrawal(Base):
+    __tablename__ = "withdrawals"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"))
+    wallet_id = Column(String(36), ForeignKey("wallets.id"), nullable=False)
+    transaction_id = Column(String(36), ForeignKey("transactions.id"), nullable=False)
+    fee = Column(Integer, default=0)
+
+
+    currency = Column(String(10))
+    amount = Column(Integer)
+    destination = Column(String(255))
+
+    status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
+    created_at = Column(DateTime(timezone=True), default=func.now())
     
-#     total_work_hours = Column(Integer, default=0)  # in minutes
-#     total_overtime_hours = Column(Integer, default=0)  # in minutes
-#     total_late_minutes = Column(Integer, default=0)
-    
-#     # System tracking
-#     generated_at = Column(DateTime(timezone=True), default=func.now())
-    
-#     # Relationships
-#     company = relationship("Companies")
-#     staff = relationship("CompanyStaffs")

@@ -28,7 +28,7 @@ async def forgotten_password_reset_email(email: str, db: AsyncSession = Depends(
             detail="email not exist"
         )
     
-    token = f"{random.randint(0, 9999):04}"
+    token = f"{random.randrange(10**5):05}"
     token_expires_at = datetime.utcnow() + timedelta(minutes=10)
     
     existing_user_email.token = token
@@ -37,7 +37,7 @@ async def forgotten_password_reset_email(email: str, db: AsyncSession = Depends(
     await db.commit()
     await db.refresh(existing_user_email)
 
-    await send_email(existing_user_email.email, str(token), "company_verification")
+    await send_email(existing_user_email.email, str(token), "keta_forgotten_password")
 
     return JSONResponse(
         status_code=status.HTTP_200_OK,

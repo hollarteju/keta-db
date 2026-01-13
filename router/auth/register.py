@@ -30,22 +30,23 @@ async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
         
         hashed_password = User.hash_password(user.password)
 
-        token = f"{random.randint(0, 9999):04}"
+        token = f"{random.randrange(10**5):05}"
         token_expires_at = datetime.utcnow() + timedelta(minutes=10)
 
 
-        new_company = User(
+        new_user = User(
+            full_name = user.full_name,
             email=user.email,
             password=hashed_password,  
             token = token,
             token_expires_at=token_expires_at
         )
 
-        db.add(new_company)
+        db.add(new_user)
         await db.commit()
-        await db.refresh(new_company)
+        await db.refresh(new_user)
         try:
-          await  send_email(user.email, str(token), "user_verification")
+          await  send_email(user.email, str(token), "keta-sign-up")
         
         except Exception as e:
              raise HTTPException(
@@ -55,7 +56,7 @@ async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
         return RegisterUserResponse(
             status="success",
             message="user registered successfully",
-            company=UserResponse.model_validate(new_company)
+            company=UserResponse.model_validate(new_user)
         )
 
     except Exception as e:
