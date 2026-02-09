@@ -9,7 +9,7 @@ from datetime import datetime, date, time, timedelta
 from enum import Enum as PyEnum
 from sqlalchemy.ext.asyncio import AsyncSession
 
-
+import re
 
 
 
@@ -27,11 +27,13 @@ class TransactionType(PyEnum):
 
 
 class TransactionStatus(PyEnum):
-    PENDING = "pending"
-    PROCESSING = "processing"
-    COMPLETED = "completed"
-    FAILED = "failed"
-    CANCELLED = "cancelled"
+    PENDING = "Pending"
+    PROCESSING = "Processing"
+    COMPLETED = "Completed"
+    FAILED = "Failed"
+    FUND_RELEASED = "Fund released"
+    UNDER_REVIEW = "Under review"
+    CANCELLED = "Cancelled"
 
 
 class WalletType(PyEnum):
@@ -58,6 +60,13 @@ class WalletStatus(PyEnum):
     FROZEN = "frozen"
 
 
+class TransactionHeader(PyEnum):
+    CRYPTO_PURCHASE = "Crypto Purchase Completed"
+    CRYPTO_SALE = "Crypto Sale Completed"
+
+class TransactionDetails(Enum):
+    CRYPTO_PURCHASE = "You bought {amount} {crypto} for ${price} USD"
+
 
 class User(Base):
     __tablename__ = "users"
@@ -78,9 +87,13 @@ class User(Base):
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
 
     wallets = relationship("Wallet", back_populates="user")
-    transactions = relationship("Transaction", back_populates="user")
+    sent_transactions = relationship("Transaction", foreign_keys="Transaction.from_user_id")
+    received_transactions = relationship("Transaction", foreign_keys="Transaction.to_user_id")
 
     
+    def is_valid_password(pw: str) -> bool:
+        return bool(re.fullmatch(r"\d{6}", pw))
+
     def verify_password(self, plain_password: str) -> bool:
         return pwd_context.verify(plain_password, self.password)
     
@@ -240,8 +253,11 @@ class Transaction(Base):
     __tablename__ = "transactions"
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
 
+    header = Column(Enum(TransactionHeader), nullable=False)
+    description = Column(String(200), nullable=False)
+    from_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    to_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     type = Column(Enum(TransactionType), nullable=False)
     status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
 
@@ -254,12 +270,12 @@ class Transaction(Base):
     rate = Column(Integer)
     reference = Column(String(100), unique=True, index=True)
 
-
     created_at = Column(DateTime(timezone=True), default=func.now())
-    
 
-    user = relationship("User", back_populates="transactions")
-    
+    # 🔁 Relationships
+    from_user = relationship("User", foreign_keys=[from_user_id])
+    to_user = relationship("User", foreign_keys=[to_user_id])
+
 
 
 class Withdrawal(Base):

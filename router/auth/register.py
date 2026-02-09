@@ -3,10 +3,11 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from models import User
 from schemas import CreateUser, UserResponse, RegisterUserResponse
-from database import get_db
 from utils.email_config import send_email
 import random
 from datetime import datetime, timedelta
+from schemas import Token
+from database import get_db, create_access_token, create_refresh_token
 
 
 
@@ -16,9 +17,9 @@ router = APIRouter(
     tags=["users"]
 )
 
-@router.post("/user/register", response_model=RegisterUserResponse)
+@router.post("/user/register", response_model=Token)
 async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
-    try:
+    # try:
         result = await db.execute(select(User).filter(User.email == user.email))
         existing_user_email =  result.scalar_one_or_none()
         
@@ -26,6 +27,12 @@ async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="email already taken by another user"
+            )
+        
+        if not User.is_valid_password(user.password):
+             raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="invalid password format"
             )
         
         hashed_password = User.hash_password(user.password)
@@ -45,22 +52,27 @@ async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
         db.add(new_user)
         await db.commit()
         await db.refresh(new_user)
+
+        access_token = create_access_token(data={"sub": str(new_user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(new_user.id)})
+
         try:
           await  send_email(user.email, str(token), "keta-sign-up")
         
-        except Exception as e:
+        except Exception:
              raise HTTPException(
-                  status_code= status.HTTP_404_NOT_FOUND,
-                  detail=f"email not sent: {e}"
+                  status_code= status.HTTP_503_SERVICE_UNAVAILABL,
+                  detail="Verification email could not be sent. Please try again."
              )
-        return RegisterUserResponse(
-            status="success",
-            message="user registered successfully",
-            company=UserResponse.model_validate(new_user)
+        return Token(
+        access_token=access_token, 
+        refresh_token=refresh_token,
+        token_type="bearer",
+        status="success"
         )
 
-    except Exception as e:
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Unexpected error during company registration: {e}."
-            )
+    # except Exception as e:
+    #         raise HTTPException(
+    #             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+    #             detail=f"Unexpected error during company registration: {e}."
+    #         )

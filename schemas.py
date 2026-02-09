@@ -1,17 +1,53 @@
-from pydantic import BaseModel, EmailStr, field_validator, Field
-from typing import Optional, List, Any
+from pydantic import BaseModel, EmailStr, field_validator, Field, StringConstraints
+from typing import Optional, List, Annotated
 from uuid import UUID
 from datetime import datetime, date, time as dtime
 from typing import Literal, Dict, Any
 from enum import Enum
 
 
+SixDigitPassword = Annotated[
+    str,
+    StringConstraints(pattern=r"^\d{6}$")
+]
+class WalletTypeEnum(str, Enum):
+    FIAT = "fiat"
+    CRYPTO = "crypto"
+
+
+class WalletStatusEnum(str, Enum):
+    ACTIVE = "active"
+    FROZEN = "frozen"
+
+
+class TransactionTypeEnum(str, Enum):
+    BUY = "buy"
+    SELL = "sell"
+    EXCHANGE = "exchange"
+    DEPOSIT = "deposit"
+    WITHDRAWAL = "withdrawal"
+
+
+class TransactionStatusEnum(str, Enum):
+    PENDING = "Pending"
+    PROCESSING = "Processing"
+    COMPLETED = "Completed"
+    FAILED = "Failed"
+    FUND_RELEASED = "Fund released"
+    UNDER_REVIEW = "Under review"
+    CANCELLED = "Cancelled"
+
+
+class TransactionHeaderEnum(str, Enum):
+    CRYPTO_PURCHASE = "Crypto Purchase Completed"
+    CRYPTO_SALE = "Crypto Sale Completed"
+
 
 class Token(BaseModel):
     access_token: str
     token_type: str
     refresh_token: str
-    status: Literal["success"]
+    status: Literal["success", "failed"]
 
 class TokenRefreshRequest(BaseModel):
     refresh_token: str
@@ -37,8 +73,15 @@ class companyBase(BaseModel):
 class CreateUser(BaseModel):
     full_name: str
     email: EmailStr  
-    password: str
+    password: SixDigitPassword
 
+class UserUpdate(BaseModel):
+    full_name: Optional[str] = None
+    profile_pic: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+        
 class ResendCompanyCode(BaseModel):
     email: EmailStr 
 
@@ -65,6 +108,21 @@ class EmailSchema(BaseModel):
     email: EmailStr
     token: str
 
+class AuthenticatedUserResponse(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str]
+    phone_number: Optional[str]
+    address: Optional[str]
+    country: Optional[str]
+    verified_email: bool
+    subscription: Optional[str]
+    profile_pic: Optional[str]
+    active: Optional[bool]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
 
 class AllCompanyResponse(companyBase):
     class Config:
@@ -75,7 +133,10 @@ class AllCompanyResponse(companyBase):
 
 class LoginScheme(BaseModel):
     email: str
-    password: str
+    password: SixDigitPassword
+
+class LoginPassword(BaseModel):
+    password: SixDigitPassword
 
 class UpdateUser(BaseModel):
     company_name: Optional[str]
@@ -91,257 +152,311 @@ class UpdateUserResponse(BaseModel):
     message: str
     company: UpdateUser
 
-class CoreDashboardReport(BaseModel):
-    view_dashboard: bool = False
-    export_data: bool = False
-    generate_export_reports: bool = False
-    view_sales_analytics: bool = False
-    view_reports: bool = False
-
-class LeadClientManagement(BaseModel):
-    view_leads: bool = False
-    view_clients: bool = False
-    assign_lead: bool = False
-    add_edit_clients: bool = False
-    add_edit_leads: bool = False
-    assign_client: bool = False
-
-class OrderTaskManagement(BaseModel):
-    view_orders: bool = False
-    manage_orders: bool = False
-    edit_tasks: bool = False
-    create_edit_orders: bool = False
-    assign_tasks: bool = False
-
-class UserRoleManagement(BaseModel):
-    view_users: bool = False
-    manage_users: bool = False
-    add_edit_users: bool = False
-    assign_roles: bool = False
-
-class BillingSubscription(BaseModel):
-    view_billing: bool = False
-    manage_billing: bool = False
-    access_invoice: bool = False
-    update_payment_method: bool = False
-
-
-class IntegrationsApi(BaseModel):
-    access_integration: bool = False
-    manage_webhook: bool = False
-    manage_api_keys: bool = False
-
-class CommissionManagement(BaseModel):
-    view_commission: bool = False
-    approve_commission: bool = False
-
-class NotificationManagement(BaseModel):
-    manage_email_notification: bool = False
-    manage_sms_notification: bool = False
-
-class Permissions(BaseModel):
-    core_dashboard_report: CoreDashboardReport
-    lead_client_management: LeadClientManagement
-    order_task_management: OrderTaskManagement
-    user_role_management: UserRoleManagement
-    billing_subscription: BillingSubscription
-    integrations_api: IntegrationsApi
-    commission_management: CommissionManagement
-    notification_management: NotificationManagement
-
-    def to_dict(self) -> Dict[str, Any]:
-        return self.model_dump()
-
-class StaffCreate(BaseModel):
-    company_id: UUID
-    full_name: str
-    email: str
-    password: str
-    phone_number: str
-    job_title: str
-    department: str
-    role: str
-    permissions: Permissions
-
-# class StaffResponse(BaseModel):
-#     company_id: UUID
-#     full_name: str
-#     email: EmailStr
-#     password: Optional[str]=None
-#     phone_number: str
-#     job_title: str
-#     department: str
-#     role: str
-#     permissions: Permissions
+class WalletBalance(BaseModel):
+    """Individual wallet balance information"""
+    wallet_id: str = Field(..., description="Unique wallet identifier")
+    currency: str = Field(..., description="Currency code (USD, BTC, ETH, etc.)")
+    wallet_type: str = Field(..., description="Type of wallet (fiat or crypto)")
+    balance: int = Field(..., description="Current balance in smallest unit (cents, satoshis, wei)")
+    status: str = Field(..., description="Wallet status (active or frozen)")
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "wallet_id": "wallet-uuid-123",
+                "currency": "USD",
+                "wallet_type": "fiat",
+                "balance": 150000,
+                "status": "active"
+            }
+        }
 
 
-class StaffAccept(BaseModel):
-    company_id: UUID
-    email: str
-
-class StaffPermissionUpdate(BaseModel):
-    company_id: UUID
-    staff_id: UUID
-    permissions: Dict[str, bool]
-
-# class StaffPermissionResponse(BaseModel):
-
-
-class StaffLoginRequest(BaseModel):
-    email: EmailStr
-
-class StaffLoginResponse(BaseModel):
-    id: UUID
-class StaffVerifyResponse(BaseModel):
-    id: UUID
-    full_name: str
-    email: EmailStr
-    phone_number: str
-    job_title: str
-    department: str
-    profile_pic: Optional[str]
-    role: str
-    permissions: Dict
-    accept_invitation: bool
-    created_at: datetime
-    company_id: UUID
-
-class StaffDelete(BaseModel):
-    company_id: UUID
-    staff_id: UUID
-    permissions: Dict[str, bool]
-
-class AllStaffResponse(BaseModel):
-    id: UUID
-    company_id: UUID
-    full_name: str
-    email: EmailStr
-    phone_number: str
-    job_title: str
-    department: str
-    profile_pic: Optional[str] = None
-    role: str
-    permissions: Dict
-    accept_invitation: bool
-    is_active: bool
-    created_at: datetime
+class TotalCurrencySaved(BaseModel):
+    """Total currency saved across all wallets"""
+    total_usd_equivalent: int = Field(
+        ..., 
+        description="Total value in USD cents (requires exchange rate conversion for crypto)"
+    )
+    breakdown: List[WalletBalance] = Field(
+        ..., 
+        description="Detailed breakdown of all wallet balances"
+    )
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "total_usd_equivalent": 150000,
+                "breakdown": [
+                    {
+                        "wallet_id": "wallet-uuid-1",
+                        "currency": "USD",
+                        "wallet_type": "fiat",
+                        "balance": 150000,
+                        "status": "active"
+                    }
+                ]
+            }
+        }
 
-class AttendanceCheckInRequest(BaseModel):
-    staff_id: UUID
-    company_id: UUID
 
-class AttendanceCheckOutRequest(BaseModel):
-    staff_id: UUID
-    company_id: UUID
-
-class AttendanceResponse(BaseModel):
-    id: UUID
-    company_id: UUID
-    staff_id: UUID
-    attendance_date: date
-    check_in_time: Optional[datetime] = None
-    check_out_time: Optional[datetime] = None
-    created_at: datetime
-    updated_at: datetime
-
-    class Config:
-        orm_mode = True
-
-class AttendanceRecordResponse(BaseModel):
-    id: UUID
-    attendance_date: date
-    check_in_time: Optional[datetime]
-    check_out_time: Optional[datetime]
-    created_at: datetime
-    updated_at: datetime
+class OtherUserInTransaction(BaseModel):
+    """Other user details in a transaction"""
+    id: Optional[str] = Field(None, description="User's unique identifier")
+    full_name: Optional[str] = Field(None, description="User's full name")
+    profile_pic: Optional[str] = Field(None, description="URL to user's profile picture")
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "user-uuid-456",
+                "full_name": "Jane Smith",
+                "profile_pic": "https://example.com/jane.jpg"
+            }
+        }
 
 
-class StaffResponse(BaseModel):
-    id: UUID
-    full_name: str
-    email: Optional[str]
-    profile_pic: Optional[str]
-    phone_number: Optional[str]
-    job_title: Optional[str]
-    department: Optional[str]
-    role: Optional[str]
-    accept_invitation: Optional[bool]
-    is_active: Optional[bool]
-    created_at: datetime
-    attendance_records: List[AttendanceRecordResponse] = None
-
-    model_config = {"from_attributes": True}
-
-
-class TaskPriority(str, Enum):
-    IMPORTANT = "important"
-    NORMAL = "normal"
-    LOW = "low"
-
-
-class TaskAttachment(BaseModel):
-    file_name: str
-    url: str
-
-class TaskStatus(str, Enum):
-    pending = "pending"
-    completed = "completed"
-    ongoing = "ongoing"
-    overdue = "overdue"
-
-
-class TaskCreate(BaseModel):
-    company_id: Optional[UUID] = None
-    staff_id: Optional[UUID] = None
-    task_title: str = Field(..., max_length=150)
-    task_type: str = Field(..., max_length=100)
-    customer_name: str
-    customer_phone: str
-    description: Optional[str] = None
-    location: Optional[str] = None
-    date: date
-    time: Optional[dtime] = None
-    priority: TaskPriority = TaskPriority.NORMAL
-    attachment: Optional[List[str]] = []
-    status: Optional[TaskStatus] = TaskStatus.pending
-
-
-class TaskResponse(BaseModel):
-    id: UUID
-    task_title: str
-    task_type: str
-    customer_name: str
-    customer_phone: str
-    description: Optional[str]
-    location: Optional[str]
-    date: date
-    time: Optional[dtime]
-    priority: str
-    attachment: Optional[List[str]] = []
-    status: TaskStatus
+class TransactionHistoryItem(BaseModel):
+    """Individual transaction history item"""
+    id: str = Field(..., description="Transaction unique identifier")
+    header: str = Field(..., description="Transaction header/title")
+    description: str = Field(..., description="Detailed transaction description")
+    type: str = Field(..., description="Transaction type (buy, sell, exchange, deposit, withdrawal)")
+    status: str = Field(..., description="Current transaction status")
+    from_currency: Optional[str] = Field(None, description="Source currency")
+    to_currency: Optional[str] = Field(None, description="Destination currency")
+    from_amount: int = Field(..., description="Amount sent/sold in smallest unit")
+    to_amount: Optional[int] = Field(None, description="Amount received/bought in smallest unit")
+    rate: Optional[int] = Field(None, description="Exchange rate used (multiplied for precision)")
+    reference: Optional[str] = Field(None, description="Transaction reference number")
+    created_at: datetime = Field(..., description="Transaction timestamp")
+    is_sender: bool = Field(..., description="True if current user is the sender")
+    direction: str = Field(..., description="Transaction direction: 'sent' or 'received'")
+    other_user: Optional[OtherUserInTransaction] = Field(
+        None, 
+        description="Details of the other party in the transaction"
+    )
 
     class Config:
-        orm_mode = True
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "tx-uuid-789",
+                "header": "Crypto Purchase Completed",
+                "description": "You bought 0.5 BTC for $25,000 USD",
+                "type": "buy",
+                "status": "Completed",
+                "from_currency": "USD",
+                "to_currency": "BTC",
+                "from_amount": 2500000,
+                "to_amount": 50000000,
+                "rate": 5000000,
+                "reference": "REF-20240115-001",
+                "created_at": "2024-01-15T14:30:00.000Z",
+                "is_sender": True,
+                "direction": "sent",
+                "other_user": {
+                    "id": "user-uuid-456",
+                    "full_name": "Jane Smith",
+                    "profile_pic": "https://example.com/jane.jpg"
+                }
+            }
+        }
 
 
-class EditTask(BaseModel):
-    task_title: str = Field(..., max_length=150)
-    task_type: str = Field(..., max_length=100)
-    customer_name: str
-    customer_phone: str
-    description: Optional[str] = None
-    location: Optional[str] = None
-    date: date
-    time: Optional[dtime] = None
-    priority: TaskPriority = TaskPriority.NORMAL
-    attachment: Optional[List[str]] = []
+class QuickTransactionUser(BaseModel):
+    """Quick transaction contact information"""
+    id: str = Field(..., description="User's unique identifier")
+    full_name: Optional[str] = Field(None, description="User's full name")
+    profile_pic: Optional[str] = Field(None, description="URL to user's profile picture")
+    email: str = Field(..., description="User's email address")
 
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "user-uuid-456",
+                "full_name": "Jane Smith",
+                "profile_pic": "https://example.com/jane.jpg",
+                "email": "jane.smith@example.com"
+            }
+        }
+
+
+class UserStatistics(BaseModel):
+    """User transaction and wallet statistics"""
+    total_transactions: int = Field(
+        ..., 
+        description="Total number of transactions (sent + received)"
+    )
+    completed_transactions: int = Field(
+        ..., 
+        description="Number of completed transactions"
+    )
+    pending_transactions: int = Field(
+        ..., 
+        description="Number of pending transactions"
+    )
+    total_wallets: int = Field(
+        ..., 
+        description="Total number of wallets owned by user"
+    )
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "total_transactions": 45,
+                "completed_transactions": 38,
+                "pending_transactions": 5,
+                "total_wallets": 3
+            }
+        }
+
+
+# Main response schema
+class UserProfileResponse(BaseModel):
+    """
+    Enhanced user profile response with transaction history, 
+    quick contacts, and wallet information
+    """
+    
+    # Basic user information
+    id: str = Field(..., description="User's unique identifier (UUID)")
+    email: str = Field(..., description="User's email address")
+    full_name: Optional[str] = Field(None, description="User's full name")
+    phone_number: Optional[str] = Field(None, description="User's phone number")
+    address: Optional[str] = Field(None, description="User's physical address")
+    country: Optional[str] = Field(None, description="User's country")
+    verified_email: bool = Field(..., description="Email verification status")
+    subscription: Optional[str] = Field(None, description="Subscription tier (e.g., premium, basic)")
+    profile_pic: Optional[str] = Field(None, description="URL to user's profile picture")
+    active: Optional[bool] = Field(None, description="Account active status")
+    created_at: datetime = Field(..., description="Account creation timestamp")
+
+    # Wallet information
+    wallets: List[WalletBalance] = Field(
+        default_factory=list,
+        description="List of all user wallets with current balances"
+    )
+    total_currency_saved: TotalCurrencySaved = Field(
+        ...,
+        description="Total currency saved across all wallets with breakdown"
+    )
+
+    # Transaction history (max 10 recent)
+    recent_transactions: List[TransactionHistoryItem] = Field(
+        default_factory=list,
+        description="List of recent transactions (maximum 10, most recent first)"
+    )
+
+    # Quick transaction contacts (5 recent unique users)
+    quick_transaction_contacts: List[QuickTransactionUser] = Field(
+        default_factory=list,
+        description="List of frequently transacted users (maximum 5, most recent first)"
+    )
+
+    # Statistics
+    statistics: UserStatistics = Field(
+        ...,
+        description="User transaction and wallet statistics"
+    )
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "email": "john.doe@example.com",
+                "full_name": "John Doe",
+                "phone_number": "+1234567890",
+                "address": "123 Main St, New York, NY 10001",
+                "country": "United States",
+                "verified_email": True,
+                "subscription": "premium",
+                "profile_pic": "https://example.com/profile.jpg",
+                "active": True,
+                "created_at": "2024-01-15T10:30:00.000Z",
+                "wallets": [
+                    {
+                        "wallet_id": "wallet-uuid-1",
+                        "currency": "USD",
+                        "wallet_type": "fiat",
+                        "balance": 150000,
+                        "status": "active"
+                    },
+                    {
+                        "wallet_id": "wallet-uuid-2",
+                        "currency": "BTC",
+                        "wallet_type": "crypto",
+                        "balance": 50000000,
+                        "status": "active"
+                    }
+                ],
+                "total_currency_saved": {
+                    "total_usd_equivalent": 150000,
+                    "breakdown": [
+                        {
+                            "wallet_id": "wallet-uuid-1",
+                            "currency": "USD",
+                            "wallet_type": "fiat",
+                            "balance": 150000,
+                            "status": "active"
+                        },
+                        {
+                            "wallet_id": "wallet-uuid-2",
+                            "currency": "BTC",
+                            "wallet_type": "crypto",
+                            "balance": 50000000,
+                            "status": "active"
+                        }
+                    ]
+                },
+                "recent_transactions": [
+                    {
+                        "id": "tx-uuid-1",
+                        "header": "Crypto Purchase Completed",
+                        "description": "You bought 0.5 BTC for $25,000 USD",
+                        "type": "buy",
+                        "status": "Completed",
+                        "from_currency": "USD",
+                        "to_currency": "BTC",
+                        "from_amount": 2500000,
+                        "to_amount": 50000000,
+                        "rate": 5000000,
+                        "reference": "REF-20240115-001",
+                        "created_at": "2024-01-15T14:30:00.000Z",
+                        "is_sender": True,
+                        "direction": "sent",
+                        "other_user": {
+                            "id": "user-uuid-2",
+                            "full_name": "Jane Smith",
+                            "profile_pic": "https://example.com/jane.jpg"
+                        }
+                    }
+                ],
+                "quick_transaction_contacts": [
+                    {
+                        "id": "user-uuid-2",
+                        "full_name": "Jane Smith",
+                        "profile_pic": "https://example.com/jane.jpg",
+                        "email": "jane.smith@example.com"
+                    },
+                    {
+                        "id": "user-uuid-3",
+                        "full_name": "Bob Johnson",
+                        "profile_pic": "https://example.com/bob.jpg",
+                        "email": "bob.johnson@example.com"
+                    }
+                ],
+                "statistics": {
+                    "total_transactions": 45,
+                    "completed_transactions": 38,
+                    "pending_transactions": 5,
+                    "total_wallets": 2
+                }
+            }
+        }

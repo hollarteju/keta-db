@@ -69,7 +69,7 @@ def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
     )
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
-        email: str = payload.get("id")
+        email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
         token_data = TokenData(email=email)
@@ -94,7 +94,7 @@ async def refresh_access_token(refresh_token: str):
 
     try:
         payload = jwt.decode(refresh_token, SECRET_KEY, algorithms=[ALGORITHM])
-        user_id: str = payload.get("id")
+        user_id: str = payload.get("sub")
 
         if user_id is None:
             raise credentials_exception
@@ -109,7 +109,7 @@ async def refresh_access_token(refresh_token: str):
             created_at = f"{user.created_at}"
             # ✅ Create new access token with full user info
             access_token = create_access_token(data={
-                "id": str(user.id),
+                "sub": str(user.id),
                 "email": user.email,
                 "phone_number": user.phone_number,
                 "address" : user.address,
@@ -121,7 +121,7 @@ async def refresh_access_token(refresh_token: str):
 
             })
 
-            new_refresh_token = create_refresh_token(data={"id": str(user.id)})
+            new_refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
             return {
                 "access_token": access_token,
@@ -136,17 +136,17 @@ async def refresh_access_token(refresh_token: str):
             headers={"WWW-Authenticate": "Bearer"},
         )
 # Asynchronous database reset
-async def reset_db():
-    async with engine.begin() as conn:
-        # await conn.run_sync(Base.metadata.drop_all)  # Drop all tables
-        await conn.run_sync(Base.metadata.create_all)  # Create tables
-    os.system("alembic upgrade head")
+# async def reset_db():
+#     async with engine.begin() as conn:
+#         # await conn.run_sync(Base.metadata.drop_all)  # Drop all tables
+#         await conn.run_sync(Base.metadata.create_all)  # Create tables
+#     os.system("alembic upgrade head")
 
-# Asynchronous alembic version clear
-async def clear_alembic_version():
-    async with engine.connect() as connection:
-        await connection.execute(text("DELETE FROM alembic_version"))
-        print("Alembic version table cleared!")
+# # Asynchronous alembic version clear
+# async def clear_alembic_version():
+#     async with engine.connect() as connection:
+#         await connection.execute(text("DELETE FROM alembic_version"))
+#         print("Alembic version table cleared!")
 
 # Asynchronous database session dependency
 async def get_db():
