@@ -1,13 +1,14 @@
 import uuid
-from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, Numeric, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.sql import select, func
 
 from passlib.context import CryptContext
-from datetime import datetime, date, time, timedelta
+from datetime import datetime
 from enum import Enum as PyEnum
 from sqlalchemy.ext.asyncio import AsyncSession
+from decimal import Decimal
 
 import re
 
@@ -26,6 +27,21 @@ class TransactionType(PyEnum):
     WITHDRAWAL = "withdrawal"
 
 
+class TransactionDirection:
+    CREDIT_TYPES = {
+        TransactionType.DEPOSIT,
+        TransactionType.SELL,
+    }
+
+    DEBIT_TYPES = {
+        TransactionType.WITHDRAWAL,
+        TransactionType.BUY,
+    }
+
+    NEUTRAL_TYPES = {
+        TransactionType.EXCHANGE,
+    }
+
 class TransactionStatus(PyEnum):
     PENDING = "Pending"
     PROCESSING = "Processing"
@@ -40,6 +56,15 @@ class WalletType(PyEnum):
     FIAT = "fiat"
     CRYPTO = "crypto"
 
+class CurrencyType(PyEnum):
+    NAIRA = "NGN"
+    DOLLAR = "USD"
+    
+class CurrencySymbol: 
+    CURRENCY_SYMBOL = {
+    CurrencyType.NAIRA: "₦",
+    CurrencyType.DOLLAR: "$"
+}
 
 class KYCStatus(PyEnum):
     NOT_SUBMITTED = "not_submitted"
@@ -61,8 +86,12 @@ class WalletStatus(PyEnum):
 
 
 class TransactionHeader(PyEnum):
+    WALLET_FUND = "Wallet Funding"
+    WALLET_WITHDRAW = "Wallet Withdrawal"
     CRYPTO_PURCHASE = "Crypto Purchase Completed"
     CRYPTO_SALE = "Crypto Sale Completed"
+    PLATFORM_PAYMENT = "Service Payment"
+
 
 class TransactionDetails(Enum):
     CRYPTO_PURCHASE = "You bought {amount} {crypto} for ${price} USD"
@@ -85,12 +114,11 @@ class User(Base):
     token = Column(String(225), unique=True, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
-
+    # wallet_balance = Column(Numeric(12, 2), default=0.00, nullable=False)
     wallets = relationship("Wallet", back_populates="user")
-    sent_transactions = relationship("Transaction", foreign_keys="Transaction.from_user_id")
-    received_transactions = relationship("Transaction", foreign_keys="Transaction.to_user_id")
+    sent_transactions = relationship("Transaction", foreign_keys="Transaction.from_user_id", back_populates="from_user")
+    received_transactions = relationship("Transaction", foreign_keys="Transaction.to_user_id", back_populates="to_user")
 
-    
     def is_valid_password(pw: str) -> bool:
         return bool(re.fullmatch(r"\d{6}", pw))
 
@@ -113,8 +141,9 @@ class Wallet(Base):
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
 
-    currency = Column(String(10), nullable=False)  # BTC, ETH, USD, NGN
+    currency = Column(String(10), nullable=True)  # BTC, ETH, USD, NGN
     wallet_type = Column(Enum(WalletType), nullable=False)
+    balance = Column(Numeric(12, 2), default=0.00)
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     status = Column(Enum(WalletStatus), default=WalletStatus.ACTIVE)
@@ -127,65 +156,60 @@ class Wallet(Base):
 
 
     @staticmethod
-    async def get_wallet_balance(db: AsyncSession, wallet_id: str) -> int:
+    async def credit_wallet(db: AsyncSession, wallet_id: str, amount: Decimal, tx_id: str):
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        # Create ledger entry
+        entry = LedgerEntry(
+            wallet_id=wallet_id,
+            amount=amount,
+            transaction_id=tx_id,
+            entry_type=LedgerEntryType.DEPOSIT
+        )
+        db.add(entry)
+
+        # Update wallet balance (materialized)
+        result = await db.execute(select(Wallet).where(Wallet.id == wallet_id).with_for_update())
+        wallet = result.scalar_one()
+        wallet.balance = (wallet.balance or 0) + amount
+        db.add(wallet)
+        await db.commit()
+        await db.refresh(wallet)
+        return wallet.balance
+
+    @staticmethod
+    async def debit_wallet(db: AsyncSession, wallet_id: str, amount: Decimal, tx_id: str):
+        if amount <= 0:
+            raise ValueError("Amount must be positive")
+
+        result = await db.execute(select(Wallet).where(Wallet.id == wallet_id).with_for_update())
+        wallet = result.scalar_one()
+
+        if wallet.balance < amount:
+            raise InsufficientFundsError("Insufficient wallet balance")
+
+        entry = LedgerEntry(
+            wallet_id=wallet_id,
+            amount=-amount,
+            transaction_id=tx_id,
+            entry_type=LedgerEntryType.WITHDRAWAL
+        )
+        db.add(entry)
+
+        wallet.balance -= amount
+        db.add(wallet)
+        await db.commit()
+        await db.refresh(wallet)
+        return wallet.balance
+    
+    @classmethod
+    async def get_wallet_balance(cls, db: AsyncSession, wallet_id: str) -> int:
         result = await db.execute(
             select(func.coalesce(func.sum(LedgerEntry.amount), 0))
             .where(LedgerEntry.wallet_id == wallet_id)
         )
         return result.scalar_one()
-
-    @staticmethod
-    async def debit_wallet(db: AsyncSession, wallet_id: str, amount: int, tx_id: str):
-        if amount <= 0:
-            raise ValueError("Invalid amount")
-
-        async with db.begin():
-            await db.execute(
-                select(Wallet)
-                .where(Wallet.id == wallet_id)
-                .with_for_update()
-            )
-
-            if Wallet.status != WalletStatus.ACTIVE:
-                raise Exception("Wallet is frozen")
-
-            balance = await Wallet.get_wallet_balance(db, wallet_id)
-
-            if balance < amount:
-                raise InsufficientFundsError()
-
-            entry = LedgerEntry(
-                wallet_id=wallet_id,
-                amount=-amount,
-                transaction_id=tx_id,
-                entry_type=LedgerEntryType.WITHDRAWAL  # or BUY, FEE, etc
-            )
-
-
-            db.add(entry)
-
-    @staticmethod
-    async def credit_wallet(db: AsyncSession, wallet_id: str, amount: int, tx_id: str):
-        if amount <= 0:
-            raise ValueError("Invalid amount")
-
-        async with db.begin():
-            await db.execute(
-                select(Wallet)
-                .where(Wallet.id == wallet_id)
-                .with_for_update()
-            )
-
-            entry = LedgerEntry(
-                wallet_id=wallet_id,
-                amount=-amount,
-                transaction_id=tx_id,
-                entry_type=LedgerEntryType.DEPOSIT  # or BUY, FEE, etc
-            )
-
-
-            db.add(entry)
-
 
 class InsufficientFundsError(Exception):
     pass
@@ -254,7 +278,7 @@ class Transaction(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-    header = Column(Enum(TransactionHeader), nullable=False)
+    header = Column(String(50), nullable=False) 
     description = Column(String(200), nullable=False)
     from_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     to_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
@@ -276,6 +300,38 @@ class Transaction(Base):
     from_user = relationship("User", foreign_keys=[from_user_id])
     to_user = relationship("User", foreign_keys=[to_user_id])
 
+    def is_credit(self) -> bool:
+        return self.type in TransactionDirection.CREDIT_TYPES
+
+    def is_debit(self) -> bool:
+        return self.type in TransactionDirection.DEBIT_TYPES
+
+    def formatted_amount(self) -> str:
+        if self.is_credit():
+            return f"+{self.to_amount} {self.to_currency}"
+
+        if self.is_debit():
+            return f"-{self.from_amount} {self.from_currency}"
+
+        return f"{self.from_amount} {self.from_currency}"
+
+    def ui_metadata(self):
+        if self.is_credit():
+            return {
+                "icon": "arrow-up",
+                "color": "#22C55E"
+            }
+
+        if self.is_debit():
+            return {
+                "icon": "arrow-down",
+                "color": "#EF4444"
+            }
+
+        return {
+            "icon": "arrow-right",
+            "color": "#6B7280"
+        }
 
 
 class Withdrawal(Base):

@@ -1,9 +1,10 @@
-from pydantic import BaseModel, EmailStr, field_validator, Field, StringConstraints
+from pydantic import BaseModel, EmailStr, field_validator, Field, StringConstraints, condecimal
 from typing import Optional, List, Annotated
 from uuid import UUID
 from datetime import datetime, date, time as dtime
 from typing import Literal, Dict, Any
 from enum import Enum
+from decimal import Decimal
 
 
 SixDigitPassword = Annotated[
@@ -26,6 +27,7 @@ class TransactionTypeEnum(str, Enum):
     EXCHANGE = "exchange"
     DEPOSIT = "deposit"
     WITHDRAWAL = "withdrawal"
+    WALLET_FUND = "WALLET_FUND"
 
 
 class TransactionStatusEnum(str, Enum):
@@ -78,6 +80,22 @@ class CreateUser(BaseModel):
 class UserUpdate(BaseModel):
     full_name: Optional[str] = None
     profile_pic: Optional[str] = None
+
+    class Config:
+        orm_mode = True
+
+class UserResponse(BaseModel):
+    id: str
+    email: str
+    full_name: Optional[str] = None
+    phone_number: Optional[str] = None
+    address: Optional[str] = None
+    country: Optional[str] = None
+    verified_email: bool
+    subscription: Optional[str] = None
+    profile_pic: Optional[str] = None
+    active: bool
+    created_at: Optional[datetime] = None   # <-- make optional
 
     class Config:
         orm_mode = True
@@ -157,6 +175,9 @@ class WalletBalance(BaseModel):
     wallet_id: str = Field(..., description="Unique wallet identifier")
     currency: str = Field(..., description="Currency code (USD, BTC, ETH, etc.)")
     wallet_type: str = Field(..., description="Type of wallet (fiat or crypto)")
+    symbol: str
+    flag:str
+    name: str
     balance: int = Field(..., description="Current balance in smallest unit (cents, satoshis, wei)")
     status: str = Field(..., description="Wallet status (active or frozen)")
 
@@ -218,7 +239,15 @@ class OtherUserInTransaction(BaseModel):
             }
         }
 
-
+class TransactionUIMeta(BaseModel):
+    icon: str = Field(
+        ...,
+        description="Icon representing transaction direction (arrow-up / arrow-down)"
+    )
+    color: str = Field(
+        ...,
+        description="Hex color representing transaction type (green for incoming, red for outgoing)"
+    )
 class TransactionHistoryItem(BaseModel):
     """Individual transaction history item"""
     id: str = Field(..., description="Transaction unique identifier")
@@ -235,6 +264,7 @@ class TransactionHistoryItem(BaseModel):
     created_at: datetime = Field(..., description="Transaction timestamp")
     is_sender: bool = Field(..., description="True if current user is the sender")
     direction: str = Field(..., description="Transaction direction: 'sent' or 'received'")
+    ui: TransactionUIMeta
     other_user: Optional[OtherUserInTransaction] = Field(
         None, 
         description="Details of the other party in the transaction"
@@ -266,6 +296,20 @@ class TransactionHistoryItem(BaseModel):
             }
         }
 
+class TransactionUIItem(BaseModel):
+    """Single transaction item formatted for wallet UI"""
+    header: str
+    description: Optional[str]
+    amount: str
+    status: str
+    icon: str
+    color: str
+
+
+class TransactionGroup(BaseModel):
+    """Transactions grouped by date for wallet activity screen"""
+    created_at: str
+    data: List[TransactionUIItem]
 
 class QuickTransactionUser(BaseModel):
     """Quick transaction contact information"""
@@ -317,6 +361,7 @@ class UserStatistics(BaseModel):
         }
 
 
+
 # Main response schema
 class UserProfileResponse(BaseModel):
     """
@@ -342,13 +387,14 @@ class UserProfileResponse(BaseModel):
         default_factory=list,
         description="List of all user wallets with current balances"
     )
+    default_wallet: Optional[WalletBalance] = None
     total_currency_saved: TotalCurrencySaved = Field(
         ...,
         description="Total currency saved across all wallets with breakdown"
     )
 
     # Transaction history (max 10 recent)
-    recent_transactions: List[TransactionHistoryItem] = Field(
+    recent_transactions: List[TransactionGroup] = Field(
         default_factory=list,
         description="List of recent transactions (maximum 10, most recent first)"
     )
@@ -396,6 +442,7 @@ class UserProfileResponse(BaseModel):
                         "status": "active"
                     }
                 ],
+                
                 "total_currency_saved": {
                     "total_usd_equivalent": 150000,
                     "breakdown": [
@@ -431,6 +478,10 @@ class UserProfileResponse(BaseModel):
                         "created_at": "2024-01-15T14:30:00.000Z",
                         "is_sender": True,
                         "direction": "sent",
+                        "ui": {
+                            "icon": "arrow-down",
+                            "color": "#EF4444"
+                        },
                         "other_user": {
                             "id": "user-uuid-2",
                             "full_name": "Jane Smith",
@@ -460,3 +511,42 @@ class UserProfileResponse(BaseModel):
                 }
             }
         }
+
+
+class WalletResponse(BaseModel):
+    id: str
+    user_id: str
+    currency: str
+    wallet_type: str
+    status: str
+    balance: Decimal = 0
+    total_credit: Decimal = 0
+    total_debit: Decimal = 0
+    transaction_count: int = 0
+    created_at: datetime
+
+    class Config:
+        orm_mode = True
+
+
+class FundWalletRequest(BaseModel):
+    user_id: str
+    amount: condecimal(gt=0, decimal_places=2) 
+
+
+class WalletResponse(BaseModel):
+    id: str
+    user_id: str
+    currency: str
+    wallet_type: str
+    status: str
+    balance: Decimal
+    total_credit: Decimal
+    total_debit: Decimal
+    transaction_count: int
+    created_at: datetime
+
+class DevFundWalletRequest(BaseModel):
+    user_id: str
+    amount: int
+    currency: str = "NGN"

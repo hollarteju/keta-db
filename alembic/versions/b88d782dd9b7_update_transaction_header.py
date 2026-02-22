@@ -1,8 +1,8 @@
-"""Add from_user_id and to_user_id to transactions
+"""update transaction header
 
-Revision ID: 0fb09a636d1f
-Revises: 4cc6a9e1b787
-Create Date: 2026-01-20 15:46:41.335403
+Revision ID: b88d782dd9b7
+Revises: fb9d0ff703cf
+Create Date: 2026-02-14 14:01:58.177852
 
 """
 from typing import Sequence, Union
@@ -12,8 +12,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = '0fb09a636d1f'
-down_revision: Union[str, None] = '4cc6a9e1b787'
+revision: str = 'b88d782dd9b7'
+down_revision: Union[str, None] = 'fb9d0ff703cf'
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 

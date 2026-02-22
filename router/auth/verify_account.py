@@ -7,7 +7,7 @@ from sqlalchemy.future import select
 from uuid import UUID
 from fastapi.responses import JSONResponse
 from utils.uuid_convert import uuid_to_str, str_to_uuid
-
+from schemas import UserResponse
 
 router = APIRouter(
     prefix="/api/v1",
@@ -58,3 +58,27 @@ async def verify_account(id: UUID, token:str, db: AsyncSession = Depends(get_db)
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                     detail=f"Unexpected error during user registration: {e}."
                 )
+
+
+
+def sanitize_user(user: User) -> dict:
+    return {
+        "id": user.id,
+        "email": user.email,
+        "full_name": user.full_name or "",
+        "phone_number": user.phone_number or "",
+        "address": user.address or "",
+        "country": user.country or "",
+        "verified_email": user.verified_email,
+        "subscription": user.subscription or "",
+        "profile_pic": user.profile_pic or "",
+        "active": user.active,
+        "created_at": user.created_at,  # will be None if missing
+    }
+
+
+@router.get("/users", response_model=list[UserResponse])
+async def get_all_users(db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(User))
+    users = result.scalars().all()
+    return [sanitize_user(u) for u in users]

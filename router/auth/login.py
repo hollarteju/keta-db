@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import User, Wallet, LedgerEntry, TransactionStatus, Transaction
+from models import User, Wallet, LedgerEntry, TransactionStatus, Transaction, CurrencySymbol, CurrencyType, TransactionDirection
 from sqlalchemy import select, func, or_, desc
 from schemas import Token, LoginScheme, AuthenticatedUserResponse, UserUpdate, UserProfileResponse, LoginPassword
 from database import get_db, create_access_token, create_refresh_token
@@ -9,6 +9,34 @@ from utils.dependencies.auth import get_current_user
 from utils.email_config import send_email
 import random
 from datetime import datetime, timedelta
+from collections import defaultdict
+
+
+def format_tx_amount(tx, is_sender: bool):
+    if is_sender:
+        return f"-{tx.from_amount} {tx.from_currency}"
+    return f"+{tx.to_amount} {tx.to_currency}"
+
+def format_date_label(dt: datetime):
+    return dt.strftime("%b %d")  # Oct 25
+
+CURRENCY_FLAG = {
+    "NGN": "🇳🇬",
+    "USD": "🇺🇸",
+    "EUR": "🇪🇺",
+    "POUND": "🇬🇧",
+    "GBP": "🇬🇧",
+}   
+
+
+CURRENCY_NAME = {
+    "NGN": "Nigerian Naira",
+    "USD": "US Dollar",
+    "EUR": "🇪🇺",
+    "POUND": "🇬🇧",
+    "GBP": "🇬🇧",
+}   
+
 
 
 
@@ -99,7 +127,6 @@ async def get_me(
 
 
 async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
- 
     result = await db.execute(
         select(User).where(User.id == user_id)
     )
@@ -114,9 +141,10 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
     )
     wallets = wallet_result.scalars().all()
 
-    # Calculate total currency saved for each wallet
+    # Calculate total currency saved and separate default wallet
     wallet_balances = []
-    total_usd_equivalent = 0  # You'll need exchange rates for this
+    total_usd_equivalent = 0
+    default_wallet = None
 
     for wallet in wallets:
         # Get wallet balance from ledger entries
@@ -125,22 +153,35 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
             .where(LedgerEntry.wallet_id == wallet.id)
         )
         balance = balance_result.scalar_one()
+        symbol = CurrencySymbol.CURRENCY_SYMBOL.get(CurrencyType(wallet.currency), wallet.currency)
 
-        wallet_balances.append({
+        # Example wallet data
+        wallet_data = {
             "wallet_id": wallet.id,
             "currency": wallet.currency,
-            "wallet_type": wallet.wallet_type.value,
+            "wallet_type": wallet.wallet_type,
+            "symbol": symbol,
             "balance": balance,
-            "status": wallet.status.value,
-        })
+            "status": wallet.status,
+            "flag": CURRENCY_FLAG.get(wallet.currency),
+            "name" : CURRENCY_NAME.get(wallet.currency) 
+        }
 
-        # TODO: Convert to USD equivalent using exchange rates
-        # For now, just sum if it's already USD
-        if wallet.currency == "USD":
+        wallet_balances.append(wallet_data)
+
+        # Assign default wallet as USD if exists
+        if wallet.currency == "USD" and default_wallet is None:
+            default_wallet = wallet_data
             total_usd_equivalent += balance
+        elif wallet.currency != "USD":
+            # You can optionally convert to USD using exchange rates
+            pass
 
-    # 📜 Get recent transaction history (max 10)
-    # Get transactions where user is either sender or receiver
+    # If no USD wallet exists, pick the first as default
+    if not default_wallet and wallet_balances:
+        default_wallet = wallet_balances[0]
+
+    # 📜 Get recent transactions (max 10)
     transaction_result = await db.execute(
         select(Transaction)
         .where(
@@ -154,43 +195,32 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
     )
     transactions = transaction_result.scalars().all()
 
-    # Format transaction history
-    transaction_history = []
+    grouped = defaultdict(list)
     for tx in transactions:
-        # Determine if user is sender or receiver
-        is_sender = tx.from_user_id == user_id
-        
-        # Get the other user's details
-        other_user_id = tx.to_user_id if is_sender else tx.from_user_id
-        other_user_result = await db.execute(
-            select(User).where(User.id == other_user_id)
-        )
-        other_user = other_user_result.scalar_one_or_none()
-
-        transaction_history.append({
-            "id": tx.id,
-            "header": tx.header.value,
+        date_key = format_date_label(tx.created_at)
+        grouped[date_key].append({
+            "header": tx.header,
             "description": tx.description,
-            "type": tx.type.value,
-            "status": tx.status.value,
-            "from_currency": tx.from_currency,
-            "to_currency": tx.to_currency,
-            "from_amount": tx.from_amount,
-            "to_amount": tx.to_amount,
-            "rate": tx.rate,
-            "reference": tx.reference,
-            "created_at": tx.created_at,
-            "is_sender": is_sender,
-            "direction": "sent" if is_sender else "received",
-            "other_user": {
-                "id": other_user.id if other_user else None,
-                "full_name": other_user.full_name if other_user else "Unknown",
-                "profile_pic": other_user.profile_pic if other_user else None,
-            } if other_user else None,
+            "amount": tx.formatted_amount(),
+            "status": tx.status,
+            "icon": (
+        "arrow-up" if tx.type in TransactionDirection.CREDIT_TYPES else
+        "arrow-down" if tx.type in TransactionDirection.DEBIT_TYPES else
+        "arrow-right"
+        ),
+        "color": (
+            "#22C55E" if tx.type in TransactionDirection.CREDIT_TYPES else
+            "#EF4444" if tx.type in TransactionDirection.DEBIT_TYPES else
+            "#6B7280"
+        ),
         })
 
-    # 👥 Get quick transaction contacts (5 recent unique users)
-    # Get unique users from recent transactions (excluding self)
+    recent_transactions = [
+        {"created_at": date, "data": items}
+        for date, items in grouped.items()
+    ]
+
+    # 👥 Quick transaction contacts
     quick_contacts_result = await db.execute(
         select(User)
         .join(
@@ -205,8 +235,8 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
                 Transaction.from_user_id == user_id,
                 Transaction.to_user_id == user_id
             ),
-            User.id != user_id,  # Exclude self
-            Transaction.status == TransactionStatus.COMPLETED,  # Only completed transactions
+            User.id != user_id,
+            Transaction.status == TransactionStatus.COMPLETED
         )
         .group_by(User.id)
         .order_by(desc(func.max(Transaction.created_at)))
@@ -224,8 +254,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
         for contact in quick_contacts_users
     ]
 
-    # 📊 Additional statistics
-    # Total transactions count
+    # 📊 Statistics
     total_tx_result = await db.execute(
         select(func.count(Transaction.id))
         .where(
@@ -237,7 +266,6 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
     )
     total_transactions = total_tx_result.scalar_one()
 
-    # Completed transactions count
     completed_tx_result = await db.execute(
         select(func.count(Transaction.id))
         .where(
@@ -250,7 +278,6 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
     )
     completed_transactions = completed_tx_result.scalar_one()
 
-    # Pending transactions count
     pending_tx_result = await db.execute(
         select(func.count(Transaction.id))
         .where(
@@ -263,7 +290,6 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
     )
     pending_transactions = pending_tx_result.scalar_one()
 
-    # 🎯 Build enhanced response
     return {
         # Basic user info
         "id": user.id,
@@ -278,17 +304,16 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
         "active": user.active,
         "created_at": user.created_at,
 
-        # Wallet information
+        # Wallets
         "wallets": wallet_balances,
+        "default_wallet": default_wallet,
         "total_currency_saved": {
             "total_usd_equivalent": total_usd_equivalent,
             "breakdown": wallet_balances,
         },
 
-        # Transaction history (max 10)
-        "recent_transactions": transaction_history,
-
-        # Quick transaction contacts (5 recent unique users)
+        # Transactions
+        "recent_transactions": recent_transactions,
         "quick_transaction_contacts": quick_transaction_contacts,
 
         # Statistics
