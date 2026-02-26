@@ -550,3 +550,12 @@ class DevFundWalletRequest(BaseModel):
     user_id: str
     amount: int
     currency: str = "NGN"
+
+class VerifyAccountRequest(BaseModel):
+    account_number: str
+    bank_code: str
+
+class VerifyAccountResponse(BaseModel):
+    account_number: str
+    account_name: str
+    bank_code: str

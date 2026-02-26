@@ -7,7 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
 from models import Wallet, User, WalletType, WalletStatus, Transaction, LedgerEntry
 from database import get_db
-from schemas import WalletResponse, FundWalletRequest, DevFundWalletRequest
+from schemas import WalletResponse, VerifyAccountRequest, VerifyAccountResponse
 import base64
 from decimal import Decimal
 from sqlalchemy import func, case
@@ -27,15 +27,72 @@ router = APIRouter(
     tags=["wallets"]
 )
 
-async def get_monnify_token():
-    auth_string = f"{MONNIFY_API_KEY}:{MONNIFY_SECRET_KEY}"
-    encoded = base64.b64encode(auth_string.encode()).decode()
+auth_string = f"{MONNIFY_API_KEY}:{MONNIFY_SECRET_KEY}"
+encoded = base64.b64encode(auth_string.encode()).decode()
+
+headers = {
+    "Authorization": f"Basic {encoded}",
+    "Content-Type": "application/json"
+}
+
+
+async def monnify_create_transaction(
+    user_id: str,
+    amount: Decimal,
+    reference: str,
+    token: str
+) -> None:
+    payload = {
+        "amount": float(amount),
+        "customerName": user_id,
+        "customerEmail": f"{user_id}@example.com",  # replace with real email if available
+        "paymentReference": reference,
+        "contractCode": MONNIFY_CONTRACT_CODE,
+        "currencyCode": "NGN",
+        "paymentDescription": "Wallet funding",
+        "redirectUrl": "https://yourfrontend.com/success"
+    }
+
+
 
     headers = {
-        "Authorization": f"Basic {encoded}",
+        "Authorization": f"Bearer {token}",
         "Content-Type": "application/json"
     }
 
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{MONNIFY_BASE_URL}/api/v1/merchant/transactions/init-transaction",
+            json=payload,
+            headers=headers
+        )
+        data = resp.json()
+        print(f"data response: {data}")
+    if not data.get("requestSuccessful"):
+        raise HTTPException(
+            status_code=400,
+            detail=data.get("responseMessage", "Monnify transaction creation failed")
+        )
+
+async def get_monnify_banks():
+    # 1️⃣ Get access token first
+    token = await get_monnify_token()  # returns access token
+
+    # 2️⃣ Call /banks endpoint with Bearer token
+    async with httpx.AsyncClient() as client:
+        resp = await client.get(
+            f"{MONNIFY_BASE_URL}/api/v1/banks",
+            headers={"Authorization": f"Bearer {token}"}
+        )
+        data = resp.json()
+
+    # 3️⃣ Return responseBody if successful
+    if not data.get("requestSuccessful"):
+        raise Exception(f"Failed to fetch banks: {data.get('responseMessage')}")
+
+    return data["responseBody"]
+
+async def get_monnify_token():
     async with httpx.AsyncClient() as client:
         resp = await client.post(
             f"{MONNIFY_BASE_URL}/api/v1/auth/login",
@@ -48,25 +105,6 @@ async def get_monnify_token():
 
     return data["responseBody"]["accessToken"]
 
-
-async def get_monnify_token() -> str:
-    """Get Monnify Bearer token from API keys"""
-    auth_string = f"{MONNIFY_API_KEY}:{MONNIFY_SECRET_KEY}"
-    encoded = base64.b64encode(auth_string.encode()).decode()
-
-    headers = {
-        "Authorization": f"Basic {encoded}",
-        "Content-Type": "application/json"
-    }
-
-    async with httpx.AsyncClient() as client:
-        resp = await client.post(f"{MONNIFY_BASE_URL}/api/v1/auth/login", headers=headers)
-        data = resp.json()
-
-    if not data.get("requestSuccessful"):
-        raise Exception(f"Monnify authentication failed: {data.get('responseMessage')}")
-
-    return data["responseBody"]["accessToken"]
 
 
 async def monnify_initialize_payment(user_id: str, amount: float, payment_reference: str, token: str) -> str:
@@ -103,6 +141,13 @@ async def monnify_initialize_payment(user_id: str, amount: float, payment_refere
 
     return data["responseBody"]["checkoutUrl"]
 
+@router.get("/banks")
+async def monnify_banks():
+    data = await get_monnify_banks()
+    return data
+
+
+
 
 @router.post("/fund/initiate")
 async def fund_wallet(user_id: str, currency: str, amount: Decimal, db: AsyncSession = Depends(get_db)):
@@ -132,72 +177,6 @@ async def fund_wallet(user_id: str, currency: str, amount: Decimal, db: AsyncSes
     return {"transaction_id": tx.id, "checkout_url": checkout_url}
 
 
-# @router.post("/fund/initiate")
-# async def initiate_fund_wallet(request: FundWalletRequest, db: AsyncSession = Depends(get_db)):
-#     result = await db.execute(select(Wallet).where(Wallet.user_id == request.user_id))
-#     wallet = result.scalar_one_or_none()
-#     if not wallet:
-#         raise HTTPException(status_code=404, detail="Wallet not found")
-
-#     reference = str(uuid4())
-
-#     token = await get_monnify_token()
-
-#     headers = {
-#         "Authorization": f"Bearer {token}",
-#         "Content-Type": "application/json"
-#     }
-
-#     payload = {
-#         "amount": float(request.amount),
-#         "customerName": request.user_id,
-#         "customerEmail": f"{request.user_id}@example.com",
-#         "paymentReference": reference,
-#         "contractCode": MONNIFY_CONTRACT_CODE,
-#         "currencyCode": "NGN",
-#         "paymentDescription": "Wallet funding",
-#         "redirectUrl": "https://yourfrontend.com/payment-success"
-#     }
-
-#     async with httpx.AsyncClient() as client:
-#         resp = await client.post(
-#             f"{MONNIFY_BASE_URL}/api/v1/merchant/transactions/init-transaction",
-#             json=payload,
-#             headers=headers
-#         )
-#         data = resp.json()
-
-#     if not data.get("requestSuccessful"):
-#         raise HTTPException(400, data.get("responseMessage"))
-
-#     checkout_url = data["responseBody"]["checkoutUrl"]
-
-#     # Save pending transaction
-#     transaction = Transaction(
-#         header="WALLET_FUND",
-#         description="Wallet funding initiated",
-#         from_user_id=request.user_id,
-#         to_user_id=request.user_id,
-#         type="DEPOSIT",
-#         status="PENDING",
-#         from_currency="NGN",
-#         to_currency="NGN",
-#         from_amount=request.amount,
-#         to_amount=request.amount,
-#         reference=reference
-#     )
-
-#     db.add(transaction)
-#     await db.commit()
-
-#     return {
-#         "payment_url": checkout_url,
-#         "reference": reference
-#     }
-
-# -------------------------------
-# 2b. Monnify Webhook
-# -------------------------------
 @router.post("/monnify/webhook")
 async def monnify_webhook(request: Request, db: AsyncSession = Depends(get_db)):
     payload = await request.json()
@@ -359,72 +338,179 @@ async def get_user_wallets(
     return responses
 
 
-@router.post("/fund")
-async def dev_fund_wallet(
-    request: DevFundWalletRequest,
-    user: User = Depends(get_current_user),
+# @router.post("/fund")
+# async def dev_fund_wallet(
+#     request: DevFundWalletRequest,
+#     user: User = Depends(get_current_user),
+#     db: AsyncSession = Depends(get_db)
+# ):
+    
+#     result = await db.execute(
+#         select(Wallet).where(
+#             Wallet.user_id == user.id,
+#             Wallet.currency == request.currency
+#         )
+#     )
+#     wallet = result.scalar_one_or_none()
+
+#     if not wallet:
+#         raise HTTPException(
+#             status_code=404,
+#             detail=f"{request.currency} wallet not found"
+#         )
+
+#     if wallet.status != WalletStatus.ACTIVE:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Wallet is frozen"
+#         )
+
+#     # 2️⃣ Create completed transaction
+#     tx_id = str(uuid4())
+
+#     transaction = Transaction(
+#         id=tx_id,
+#         header=TransactionHeader.WALLET_FUND.value,
+#         description="DEV wallet funding",
+#         from_user_id=user.id,
+#         to_user_id=user.id,
+#         type=TransactionType.DEPOSIT,
+#         status=TransactionStatus.COMPLETED,
+#         from_currency=request.currency,
+#         to_currency=request.currency,
+#         from_amount=request.amount,
+#         to_amount=request.amount,
+#         reference=f"DEV-{uuid4()}"
+#     )
+
+#     db.add(transaction)
+
+#     # 3️⃣ Credit wallet using ledger
+#     await Wallet.credit_wallet(
+#         db=db,
+#         wallet_id=wallet.id,
+#         amount=request.amount,
+#         tx_id=tx_id
+#     )
+
+
+#     wallet.balance = (wallet.balance or 0) + request.amount
+
+#     await db.commit()
+#     await db.refresh(wallet)
+
+#     balance = await Wallet.get_wallet_balance(db, wallet.id)
+
+#     return {
+#         "message": "Wallet funded (development mode)",
+#         "wallet_id": wallet.id,
+#         "credited_amount": request.amount,
+#         "current_balance": balance
+#     }
+
+
+
+
+@router.post("/fund/bank")
+async def fund_wallet_bank(
+    user_id: str,
+    currency: str,
+    amount: Decimal,
+    bank_code: str,
     db: AsyncSession = Depends(get_db)
 ):
-    # 1️⃣ Find wallet
-    result = await db.execute(
-        select(Wallet).where(
-            Wallet.user_id == user.id,
-            Wallet.currency == request.currency
-        )
-    )
-    wallet = result.scalar_one_or_none()
-
-    if not wallet:
-        raise HTTPException(
-            status_code=404,
-            detail=f"{request.currency} wallet not found"
-        )
-
-    if wallet.status != WalletStatus.ACTIVE:
-        raise HTTPException(
-            status_code=400,
-            detail="Wallet is frozen"
-        )
-
-    # 2️⃣ Create completed transaction
+    # 1️⃣ Create pending transaction in YOUR DB
     tx_id = str(uuid4())
+    reference = f"TXN{uuid4().hex[:12]}"
 
     transaction = Transaction(
         id=tx_id,
         header=TransactionHeader.WALLET_FUND.value,
-        description="DEV wallet funding",
-        from_user_id=user.id,
-        to_user_id=user.id,
+        description="Wallet funding via Monnify bank transfer",
+        from_user_id=user_id,
+        to_user_id=user_id,
         type=TransactionType.DEPOSIT,
-        status=TransactionStatus.COMPLETED,
-        from_currency=request.currency,
-        to_currency=request.currency,
-        from_amount=request.amount,
-        to_amount=request.amount,
-        reference=f"DEV-{uuid4()}"
+        status=TransactionStatus.PENDING,
+        from_currency=currency,
+        to_currency=currency,
+        from_amount=amount,
+        to_amount=amount,
+        reference=reference
     )
-
     db.add(transaction)
-
-    # 3️⃣ Credit wallet using ledger
-    await Wallet.credit_wallet(
-        db=db,
-        wallet_id=wallet.id,
-        amount=request.amount,
-        tx_id=tx_id
-    )
-
-
-    wallet.balance = (wallet.balance or 0) + request.amount
-
     await db.commit()
-    await db.refresh(wallet)
 
-    balance = await Wallet.get_wallet_balance(db, wallet.id)
+    # 2️⃣ Authenticate
+    token = await get_monnify_token()
+
+    # ✅ NEW STEP — Register transaction on Monnify
+    await monnify_create_transaction(user_id, amount, reference, token)
+
+    # 3️⃣ Now request bank transfer instructions
+    headers = {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
+    payload = {
+        "transactionReference": reference,
+        "bankCode": bank_code
+    }
+
+    async with httpx.AsyncClient() as client:
+        resp = await client.post(
+            f"{MONNIFY_BASE_URL}/api/v1/merchant/bank-transfer/init-payment",
+            json=payload,
+            headers=headers
+        )
+        data = resp.json()
+
+    if not data.get("requestSuccessful"):
+        raise HTTPException(400, data.get("responseMessage"))
+
+    payment_info = data["responseBody"]
 
     return {
-        "message": "Wallet funded (development mode)",
-        "wallet_id": wallet.id,
-        "credited_amount": request.amount,
-        "current_balance": balance
+        "message": "Bank transfer initialized. Awaiting payment.",
+        "transaction_id": tx_id,
+        "reference": reference,
+        "account_number": payment_info["accountNumber"],
+        "bank_name": payment_info["bankName"],
+        "bank_code": payment_info["bankCode"],
+        "expires_on": payment_info.get("expiresOn")
     }
+
+@router.post("/monnify/webhook/bank")
+async def monnify_webhook(request: Request, db: AsyncSession = Depends(get_db)):
+    payload = await request.json()
+
+    if payload.get("paymentStatus") != "PAID":
+        return {"status": "ignored"}
+
+    reference = payload.get("paymentReference")
+    amount_paid = float(payload.get("amountPaid") or payload.get("amount"))
+
+    # Find pending transaction
+    result = await db.execute(select(Transaction).where(Transaction.reference == reference))
+    tx = result.scalar_one_or_none()
+    if not tx:
+        return {"status": "tx_not_found"}
+
+    if tx.status == TransactionStatus.COMPLETED:
+        return {"status": "already_processed"}
+
+    # Update wallet
+    result = await db.execute(
+    select(Wallet).where(
+        Wallet.user_id == tx.from_user_id,
+        Wallet.currency == tx.to_currency
+    )
+)
+    wallet = result.scalar_one_or_none()
+    if not wallet:
+        raise HTTPException(404, "Wallet not found")
+
+    wallet.balance += amount_paid
+    tx.status = TransactionStatus.COMPLETED
+
+    db.add(wallet)
+    db.add(tx)
+    await db.commit()
+
+    return {"status": "wallet_credited", "credited_amount": amount_paid, "current_balance": wallet.balance}
