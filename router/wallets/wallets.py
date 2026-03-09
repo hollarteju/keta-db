@@ -80,44 +80,6 @@ async def get_monnify_token():
     return data["responseBody"]["accessToken"]
 
 
-async def monnify_initialize_payment(
-    user_id: str,
-    email: str,
-    amount: float,
-    payment_reference: str,
-    token: str
-) -> str:
-
-    payload = {
-        "amount": amount,
-        "customerName": user_id or email,
-        "customerEmail": email,
-        "paymentReference": payment_reference,
-        "contractCode": MONNIFY_CONTRACT_CODE,
-        "currencyCode": "NGN",
-        "paymentDescription": "Wallet funding",
-        "redirectUrl": FRONTEND_PAYMENT_SUCCESS_URL
-    }
-
-    headers = {
-        "Authorization": f"Bearer {token}",
-        "Content-Type": "application/json"
-    }
-
-    async with httpx.AsyncClient(timeout=60) as client:
-        response = await client.post(
-            f"{MONNIFY_BASE_URL}/api/v1/merchant/transactions/init-transaction",
-            json=payload,
-            headers=headers
-        )
-
-    data = response.json()
-
-    if not data.get("requestSuccessful"):
-        raise HTTPException(400, data.get("responseMessage"))
-
-    return data["responseBody"]["checkoutUrl"]
-
 
 @router.get("/banks")
 async def monnify_banks():
@@ -126,100 +88,6 @@ async def monnify_banks():
 
 
 
-
-@router.post("/fund/initiate")
-async def initiate_wallet_funding(
-    payload: dict,
-    db: AsyncSession = Depends(get_db)
-):
-    amount = Decimal(payload.get("amount"))
-    currency = payload.get("currency", "NGN")
-    user_id = payload.get("user_id")
-    email = payload.get("email")
-
-    if not amount or amount <= 0:
-        raise HTTPException(400, "Invalid amount")
-
-    # 1️⃣ Create pending transaction
-    tx = Transaction(
-        id=str(uuid4()),
-        header=TransactionHeader.WALLET_FUND.value,
-        description="Wallet funding via Monnify",
-        from_user_id=user_id,
-        to_user_id=user_id,
-        type=TransactionType.DEPOSIT,
-        status=TransactionStatus.PENDING,
-        from_currency=currency,
-        to_currency=currency,
-        from_amount=amount,
-        to_amount=amount,
-        reference=str(uuid4())
-    )
-
-    db.add(tx)
-    await db.commit()
-    await db.refresh(tx)
-
-    # 2️⃣ Get Monnify token
-    token = await get_monnify_token()
-
-    # 3️⃣ Initialize Monnify payment
-    checkout_url = await monnify_initialize_payment(
-        user_id=user_id,
-        email=email,
-        amount=float(amount),
-        payment_reference=tx.reference,
-        token=token
-    )
-
-    return {
-        "transaction_id": tx.id,
-        "checkout_url": checkout_url
-    }
-
-@router.post("/payments/monnify/webhook")
-async def monnify_webhook(
-    request: Request,
-    db: AsyncSession = Depends(get_db)
-):
-    payload = await request.json()
-
-    event_data = payload.get("eventData") or payload
-
-    if event_data.get("paymentStatus") != "PAID":
-        return {"status": "ignored"}
-
-    reference = event_data.get("paymentReference")
-    user_id = event_data.get("customerName")
-    amount_paid = Decimal(str(event_data.get("amountPaid") or event_data.get("amount")))
-
-    # 1️⃣ Find transaction
-    result = await db.execute(
-        select(Transaction).where(Transaction.reference == reference)
-    )
-    transaction = result.scalar_one_or_none()
-
-    if not transaction:
-        return {"status": "transaction_not_found"}
-
-    if transaction.status == TransactionStatus.COMPLETED:
-        return {"status": "already_processed"}
-
-    # 2️⃣ Credit wallet
-    result = await db.execute(
-        select(Wallet).where(Wallet.user_id == user_id)
-    )
-    wallet = result.scalar_one_or_none()
-
-    if not wallet:
-        raise HTTPException(404, "Wallet not found")
-
-    wallet.balance += amount_paid
-    transaction.status = TransactionStatus.COMPLETED
-
-    await db.commit()
-
-    return {"status": "wallet_credited"}
 
 
 @router.post("/create", response_model=WalletResponse)
@@ -324,6 +192,7 @@ async def get_user_wallets(
                 wallet_type=wallet.wallet_type.value,
                 status=wallet.status.value,
                 balance=Decimal(summary.balance),
+                locked_balance=Decimal(summary.locked_balance),
                 total_credit=Decimal(summary.total_credit),
                 total_debit=Decimal(summary.total_debit),
                 transaction_count=summary.transaction_count,
@@ -403,4 +272,5 @@ async def dev_fund_wallet(
         "credited_amount": request.amount,
         "current_balance": balance
     }
+
 

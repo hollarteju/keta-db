@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Integer, Numeric, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON, UniqueConstraint
+from sqlalchemy import Column, Integer, Numeric, text, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON, UniqueConstraint
 from sqlalchemy.orm import relationship
 from database import Base
 from sqlalchemy.sql import select, func
@@ -97,6 +97,12 @@ class TransactionDetails(Enum):
     CRYPTO_PURCHASE = "You bought {amount} {crypto} for ${price} USD"
 
 
+class SwapStatus(PyEnum):
+    OPEN = "open"
+    PARTIAL = "partial"
+    FILLED = "filled"
+    CANCELLED = "cancelled"
+
 class User(Base):
     __tablename__ = "users"
     
@@ -114,7 +120,7 @@ class User(Base):
     token = Column(String(225), unique=True, nullable=True)
     token_expires_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime(timezone=True), default=func.now(), index=True)
-    # wallet_balance = Column(Numeric(12, 2), default=0.00, nullable=False)
+    # wallet_balance = Column(Numeric(12, 2), default=text("0").00, nullable=False)
     wallets = relationship("Wallet", back_populates="user")
     sent_transactions = relationship("Transaction", foreign_keys="Transaction.from_user_id", back_populates="from_user")
     received_transactions = relationship("Transaction", foreign_keys="Transaction.to_user_id", back_populates="to_user")
@@ -143,7 +149,8 @@ class Wallet(Base):
 
     currency = Column(String(10), nullable=True)  # BTC, ETH, USD, NGN
     wallet_type = Column(Enum(WalletType), nullable=False)
-    balance = Column(Numeric(12, 2), default=0.00)
+    balance = Column(Numeric(18,8), default=text("0"))
+    locked_balance = Column(Numeric(18,8), default=text("0"), server_default=text("0"))
 
     created_at = Column(DateTime(timezone=True), default=func.now())
     status = Column(Enum(WalletStatus), default=WalletStatus.ACTIVE)
@@ -210,6 +217,48 @@ class Wallet(Base):
             .where(LedgerEntry.wallet_id == wallet_id)
         )
         return result.scalar_one()
+    
+    @staticmethod
+    async def lock_balance(db: AsyncSession, wallet_id: str, amount: Decimal):
+        result = await db.execute(
+            select(Wallet).where(Wallet.id == wallet_id).with_for_update()
+        )
+        wallet = result.scalar_one()
+        # print(f"check wallet: {wallet.locked_balance}")
+        available_balance = wallet.balance
+        if wallet.locked_balance:
+            available_balance = wallet.balance - wallet.locked_balance
+
+        if available_balance < amount:
+            raise InsufficientFundsError("Insufficient available balance")
+
+        wallet.locked_balance += amount
+        print(f"check wallet: {wallet.locked_balance}")
+        db.add(wallet)
+        await db.commit()
+        await db.refresh(wallet)
+
+        return wallet
+    
+
+    @staticmethod
+    async def spend_locked_balance(db: AsyncSession, wallet_id: str, amount: Decimal):
+        result = await db.execute(
+            select(Wallet).where(Wallet.id == wallet_id).with_for_update()
+        )
+        wallet = result.scalar_one()
+
+        if wallet.locked_balance < amount:
+            raise InsufficientFundsError("Insufficient locked balance")
+
+        wallet.locked_balance -= amount
+        wallet.balance -= amount
+
+        db.add(wallet)
+        await db.commit()
+        await db.refresh(wallet)
+
+        return wallet
 
 class InsufficientFundsError(Exception):
     pass
@@ -222,7 +271,7 @@ class LedgerEntry(Base):
     wallet_id = Column(String(36), ForeignKey("wallets.id"), nullable=False, index=True)
     transaction_id = Column(String(36), ForeignKey("transactions.id"), nullable=False, index=True)
 
-    amount = Column(Integer, nullable=False)
+    amount = Column(Numeric(18, 8), nullable=False)
     entry_type = Column(Enum(LedgerEntryType), nullable=False)
 
     created_at = Column(DateTime(timezone=True), default=func.now())
@@ -341,7 +390,7 @@ class Withdrawal(Base):
     user_id = Column(String(36), ForeignKey("users.id"))
     wallet_id = Column(String(36), ForeignKey("wallets.id"), nullable=False)
     transaction_id = Column(String(36), ForeignKey("transactions.id"), nullable=False)
-    fee = Column(Integer, default=0)
+    fee = Column(Integer, default=text("0"))
 
 
     currency = Column(String(10))
@@ -351,3 +400,62 @@ class Withdrawal(Base):
     status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
     created_at = Column(DateTime(timezone=True), default=func.now())
     
+
+class Swap(Base):
+    __tablename__ = "swaps"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    wallet_id = Column(String(36), ForeignKey("wallets.id"), nullable=False)
+    creator_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    from_currency = Column(String(10), nullable=False)
+    to_currency = Column(String(10), nullable=False)
+
+    amount = Column(Integer, nullable=False)
+    min_amount = Column(Integer, nullable=False)
+    remaining_amount = Column(Integer, nullable=False)
+
+    rate = Column(Integer, nullable=False)          
+    min_rate = Column(Integer, nullable=True)      
+    expires_at = Column(DateTime(timezone=True))
+    status = Column(Enum(SwapStatus), default=SwapStatus.OPEN)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
+    creator = relationship("User")
+    def validate_order_amount(self, amount: int):
+        
+        if self.min_amount and amount < self.min_amount:
+           return  False
+
+        # check remaining liquidity
+        if amount > self.remaining_amount:
+            return False
+
+        # check invalid amounts
+        if amount <= 0:
+            return False
+
+        return True
+
+
+class SwapExecution(Base):
+    __tablename__ = "swap_executions"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    swap_id = Column(String(36), ForeignKey("swaps.id"), nullable=False)
+
+    taker_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+
+    amount = Column(Integer, nullable=False)
+    rate = Column(Integer, nullable=False)
+    from_currency = Column(String(10))
+    to_currency = Column(String(10))
+    fee = Column(Numeric(18,8), default=text("0"))
+    transaction_id = Column(String(36), ForeignKey("transactions.id"))
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
+    swap = relationship("Swap")
+    taker = relationship("User")

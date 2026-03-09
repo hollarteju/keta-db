@@ -1,80 +1,29 @@
 import httpx
 from fastapi import HTTPException, APIRouter, Query
+from utils.rates import fetch_currency_rates, fetch_rates
 
-EXCHANGE_API_KEY = "be4de475e381c42fe5c9ea71dd474599"
-EXCHANGE_BASE_URL = "https://api.exchangeratesapi.io/v1"
 
 router = APIRouter(prefix="/rate", tags=["Currency"])
 
-async def fetch_rates(symbols: list[str]):
-    url = f"{EXCHANGE_BASE_URL}/latest"
-
-    params = {
-        "access_key": EXCHANGE_API_KEY,
-        "symbols": ",".join(symbols)
-    }
-
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(url, params=params)
-
-    data = resp.json()
-
-    if not data.get("success", False):
-        raise HTTPException(400, data.get("error", {}).get("info", "Rate fetch failed"))
-
-    return data.get("rates", {})
-
-async def fetch_currency_rates(symbols: str | None = None):
-    url = f"{EXCHANGE_BASE_URL}/latest"
-
-    params = {
-        "access_key": EXCHANGE_API_KEY,
-    }
-
-    if symbols:
-        params["symbols"] = symbols.upper()
-
-    async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.get(url, params=params)
-
-    if resp.status_code != 200:
-        raise HTTPException(502, "Exchange service unavailable")
-
-    data = resp.json()
-
-    if not data.get("success", False):
-        raise HTTPException(
-            400,
-            data.get("error", {}).get("info", "Failed to fetch exchange rates")
-        )
-
-    return data
-
 
 @router.get("/rates")
-async def get_currency_rates(
-    symbol: str | None = Query(None, description="Currency e.g. NGN, USD")
+async def get_currency_rate(
+    from_currency: str = Query(..., description="Currency to convert from e.g USD"),
+    to_currency: str = Query(..., description="Currency to convert to e.g NGN")
 ):
-    symbols = symbol if symbol else "USD,NGN,GBP"
 
-    data = await fetch_currency_rates(symbols)
+    data = await fetch_currency_rates(from_currency, to_currency)
 
     rates = data.get("rates", {})
+    rate = rates.get(to_currency.upper())
 
-    if symbol:
-        rate = rates.get(symbol.upper())
-        if not rate:
-            raise HTTPException(404, f"Currency {symbol} not found")
-
-        return {
-            "base": "EUR",
-            "currency": symbol.upper(),
-            "rate": rate
-        }
+    if not rate:
+        raise HTTPException(404, f"Currency {to_currency} not found")
 
     return {
-        "base": "EUR",
-        "rates": rates,
+        "base": from_currency.upper(),
+        "currency": to_currency.upper(),
+        "rate": rate,
         "timestamp": data.get("timestamp")
     }
 
@@ -96,9 +45,6 @@ async def convert_currency(
     if not rate_from or not rate_to:
         raise HTTPException(404, "Currency not supported")
 
-    # EUR base conversion
-    # amount_in_eur = amount / rate_from
-    # converted = amount_in_eur * rate_to
     rate_used = rate_to / rate_from
     converted = amount * rate_used
 

@@ -162,6 +162,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
             "wallet_type": wallet.wallet_type,
             "symbol": symbol,
             "balance": balance,
+            "locked_balance": wallet.locked_balance,
             "status": wallet.status,
             "flag": CURRENCY_FLAG.get(wallet.currency),
             "name" : CURRENCY_NAME.get(wallet.currency) 

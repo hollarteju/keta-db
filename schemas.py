@@ -179,6 +179,7 @@ class WalletBalance(BaseModel):
     flag:str
     name: str
     balance: int = Field(..., description="Current balance in smallest unit (cents, satoshis, wei)")
+    locked_balance: int
     status: str = Field(..., description="Wallet status (active or frozen)")
 
     class Config:
@@ -520,6 +521,7 @@ class WalletResponse(BaseModel):
     wallet_type: str
     status: str
     balance: Decimal = 0
+    locked_balance: Decimal = 0
     total_credit: Decimal = 0
     total_debit: Decimal = 0
     transaction_count: int = 0
@@ -559,3 +561,31 @@ class VerifyAccountResponse(BaseModel):
     account_number: str
     account_name: str
     bank_code: str
+
+
+class SwapCreate(BaseModel):
+    wallet_id: str
+    from_currency: str
+    to_currency: str
+    amount: Decimal
+    min_amount: Decimal
+    rate: Decimal
+    expires_at: datetime | None = None
+
+
+class SwapUpdate(BaseModel):
+    rate: Decimal | None = None
+    expires_at: datetime | None = None
+
+
+class SwapResponse(BaseModel):
+    id: str
+    creator_id: str
+    from_currency: str
+    to_currency: str
+    amount: Decimal
+    min_amount: Decimal
+    remaining_amount: Decimal
+    rate: Decimal
+    status: str
+    created_at: datetime
