@@ -143,7 +143,7 @@ async def create_wallet(
 
 
 
-@router.get("/user/{user_id}", response_model=list[WalletResponse])
+@router.get("/user", response_model=list[WalletResponse])
 async def get_user_wallets(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db)
@@ -183,7 +183,7 @@ async def get_user_wallets(
         )
 
         summary = result.first()
-
+        print(summary._mapping.keys())
         responses.append(
             WalletResponse(
                 id=wallet.id,
@@ -192,7 +192,7 @@ async def get_user_wallets(
                 wallet_type=wallet.wallet_type.value,
                 status=wallet.status.value,
                 balance=Decimal(summary.balance),
-                locked_balance=Decimal(summary.locked_balance),
+                # locked_balance=Decimal(summary.locked_balance),
                 total_credit=Decimal(summary.total_credit),
                 total_debit=Decimal(summary.total_debit),
                 transaction_count=summary.transaction_count,
