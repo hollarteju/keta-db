@@ -1,4 +1,5 @@
 import os
+from tokenize import Token
 import httpx
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -21,72 +22,100 @@ from models import Wallet, User, WalletType, CurrencyType, WalletStatus, Transac
 from database import get_db
 from schemas import WalletResponse, FundWalletRequest, DevFundWalletRequest  # you'll define this schema for response
 from uuid import uuid4
+import requests
+from dotenv import load_dotenv
 
 
-
-
-MONNIFY_BASE_URL = "https://sandbox.monnify.com"
-
-
-MONNIFY_API_KEY = os.getenv("MONNIFY_API_KEY")
-MONNIFY_SECRET_KEY = os.getenv("MONNIFY_SECRET_KEY")
-MONNIFY_CONTRACT_CODE = os.getenv("MONNIFY_CONTRACT_CODE")
+load_dotenv()
+FLUTTERWAVE_BASE_URL = "https://developersandbox-api.flutterwave.com"
+FLUTTERWAVE_AUTH = "https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token"
 
 router = APIRouter(
     prefix="/api/v1",
     tags=["wallets"]
 )
 
-auth_string = f"{MONNIFY_API_KEY}:{MONNIFY_SECRET_KEY}"
-encoded = base64.b64encode(auth_string.encode()).decode()
+def get_flutterwave_token():
+    url = FLUTTERWAVE_AUTH
+    headers = {
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
 
-headers = {
-    "Authorization": f"Basic {encoded}",
-    "Content-Type": "application/json"
-}
+    data = {
+        "client_id": os.getenv("CLIENT_ID"),
+        "client_secret": os.getenv("CLIENT_SECRET"),
+        "grant_type": "client_credentials"
+    }
 
+    try:
+        response = requests.post(url, headers=headers, data=data)
+        response.raise_for_status() 
+        return response.json()
 
-async def get_monnify_banks():
-    # 1️⃣ Get access token first
-    token = await get_monnify_token()  # returns access token
+    except requests.exceptions.RequestException as e:
+        return None
 
-    # 2️⃣ Call /banks endpoint with Bearer token
+async def get_banks(country: str = "NG"):
     async with httpx.AsyncClient() as client:
+        TOKEN = get_flutterwave_token()
+        
         resp = await client.get(
-            f"{MONNIFY_BASE_URL}/api/v1/banks",
-            headers={"Authorization": f"Bearer {token}"}
+            f"{FLUTTERWAVE_BASE_URL}/banks",
+            params={"country": country},
+            headers={
+                "accept": "application/json",
+                "Authorization": f"Bearer {TOKEN.get("access_token")}"
+            }
         )
         data = resp.json()
+    return data.get("data", [])
 
-    # 3️⃣ Return responseBody if successful
-    if not data.get("requestSuccessful"):
-        raise Exception(f"Failed to fetch banks: {data.get('responseMessage')}")
-
-    return data["responseBody"]
-
-
-
-async def get_monnify_token():
+async def verify_account(account: str, bank_code: str, currency: str):
     async with httpx.AsyncClient() as client:
+        token_data = get_flutterwave_token()
+        access_token = token_data.get("access_token")
+
+        payload = {
+            "account": {
+                "code": bank_code,
+                "number": account
+            },
+            "currency": currency
+        }
+
         resp = await client.post(
-            f"{MONNIFY_BASE_URL}/api/v1/auth/login",
-            headers=headers
+            f"{FLUTTERWAVE_BASE_URL}/banks/account-resolve",
+            json=payload,
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
         )
-        data = resp.json()
-
-    if not data.get("requestSuccessful"):
-        raise HTTPException(400, "Monnify authentication failed")
-
-    return data["responseBody"]["accessToken"]
-
-
+        return resp.json()
 
 @router.get("/banks")
-async def monnify_banks():
-    data = await get_monnify_banks()
-    return data
+async def banks(country: str = "NG"):
+    banks = await get_banks(country)
+    return {
+        "status": "success",
+        "message": f"Banks fetched successfully for {country}",
+        "data": banks
+    }
 
 
+@router.post("/account_lookup")
+async def verify_account_number(
+    account_number: str,
+    bank_code: str,
+    currency: str
+):
+    account = await verify_account(account_number, bank_code, currency)
+
+    return {
+        "status": "success",
+        "message": "Account lookup completed",
+        "data": account
+    }
 
 
 
