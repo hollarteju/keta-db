@@ -15,16 +15,20 @@ from sqlalchemy import func, case
 from utils.dependencies.auth import get_current_user
 from models import User
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import Wallet, User, WalletType, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType
+from models import Wallet, User, WalletType, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, UserRecipient
 from database import get_db
 from schemas import WalletResponse, FundWalletRequest, DevFundWalletRequest  # you'll define this schema for response
 from uuid import uuid4
 import requests
 from dotenv import load_dotenv
-
+from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer
+from typing import Optional
+import hmac
+import hashlib
+from utils.email_config import send_email
 
 load_dotenv()
 FLUTTERWAVE_BASE_URL = "https://developersandbox-api.flutterwave.com"
@@ -35,63 +39,10 @@ router = APIRouter(
     tags=["wallets"]
 )
 
-def get_flutterwave_token():
-    url = FLUTTERWAVE_AUTH
-    headers = {
-        "Content-Type": "application/x-www-form-urlencoded"
-    }
 
-    data = {
-        "client_id": os.getenv("CLIENT_ID"),
-        "client_secret": os.getenv("CLIENT_SECRET"),
-        "grant_type": "client_credentials"
-    }
 
-    try:
-        response = requests.post(url, headers=headers, data=data)
-        response.raise_for_status() 
-        return response.json()
 
-    except requests.exceptions.RequestException as e:
-        return None
 
-async def get_banks(country: str = "NG"):
-    async with httpx.AsyncClient() as client:
-        TOKEN = get_flutterwave_token()
-        
-        resp = await client.get(
-            f"{FLUTTERWAVE_BASE_URL}/banks",
-            params={"country": country},
-            headers={
-                "accept": "application/json",
-                "Authorization": f"Bearer {TOKEN.get("access_token")}"
-            }
-        )
-        data = resp.json()
-    return data.get("data", [])
-
-async def verify_account(account: str, bank_code: str, currency: str):
-    async with httpx.AsyncClient() as client:
-        token_data = get_flutterwave_token()
-        access_token = token_data.get("access_token")
-
-        payload = {
-            "account": {
-                "code": bank_code,
-                "number": account
-            },
-            "currency": currency
-        }
-
-        resp = await client.post(
-            f"{FLUTTERWAVE_BASE_URL}/banks/account-resolve",
-            json=payload,
-            headers={
-                "Authorization": f"Bearer {access_token}",
-                "Content-Type": "application/json"
-            }
-        )
-        return resp.json()
 
 @router.get("/banks")
 async def banks(country: str = "NG"):
@@ -116,6 +67,26 @@ async def verify_account_number(
         "message": "Account lookup completed",
         "data": account
     }
+
+
+@router.post("/transfer")
+async def transfer_funds(
+    account_number: str,
+    bank_code: str,
+    amount: float,
+    source_currency: str = "NGN",
+    destination_currency: str = "NGN"
+):
+    result = await initiate_bank_transfer(account_number, bank_code, amount, source_currency, destination_currency)
+    
+    return {
+        "status": "success",
+        "message": "Transfer completed",
+        "data": result
+    }
+
+
+
 
 
 
@@ -303,3 +274,40 @@ async def dev_fund_wallet(
     }
 
 
+
+@router.post("/webhook/keta")
+async def flutterwave_webhook(
+    request: Request,
+    flutterwave_signature: Optional[str] = Header(None)
+):
+    secret_hash = os.getenv("FLW_SECRET_HASH")
+    raw_body = await request.body()
+
+    # Verify signature using HMAC-SHA256
+    expected_signature = base64.b64encode(
+        hmac.new(
+            secret_hash.encode("utf-8"),
+            raw_body,
+            hashlib.sha256
+        ).digest()
+    ).decode("utf-8")
+
+    if not flutterwave_signature or flutterwave_signature != expected_signature:
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    payload = await request.json()
+
+    event_type = payload.get("type")
+    data = payload.get("data", {})
+
+    if event_type == "charge.completed":
+        status = data.get("status")
+        reference = data.get("reference")
+        amount = data.get("amount")
+        currency = data.get("currency")
+
+        if status == "succeeded":
+            print(f"Payment confirmed: {reference}, {amount} {currency}")
+            send_email("sirolateju2022@gmail.com", "webhook", "keta_forgotten_password")
+    # Always return 200 quickly — offload heavy work to a background task
+    return {"result": data}

@@ -124,6 +124,7 @@ class User(Base):
     wallets = relationship("Wallet", back_populates="user")
     sent_transactions = relationship("Transaction", foreign_keys="Transaction.from_user_id", back_populates="from_user")
     received_transactions = relationship("Transaction", foreign_keys="Transaction.to_user_id", back_populates="to_user")
+    recipients = relationship("UserRecipient", back_populates="user")
 
     def is_valid_password(pw: str) -> bool:
         return bool(re.fullmatch(r"\d{6}", pw))
@@ -259,6 +260,25 @@ class Wallet(Base):
         await db.refresh(wallet)
 
         return wallet
+
+class UserRecipient(Base):
+    __tablename__ = "user_recipients"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    recipient_id = Column(String(255), nullable=False)
+    account_number = Column(String(20), nullable=False)
+    bank_code = Column(String(10), nullable=False)
+    bank_name = Column(String(100), nullable=True)
+    is_default = Column(Boolean, default=False)  # ⭐ important
+    created_at = Column(DateTime, default=func.now())
+    user = relationship("User", back_populates="recipients")
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "account_number", "bank_code", name="uq_user_bank"),
+    )
+
+
 
 class InsufficientFundsError(Exception):
     pass
