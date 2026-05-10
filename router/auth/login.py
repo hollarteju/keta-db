@@ -10,6 +10,15 @@ from utils.email_config import send_email
 import random
 from datetime import datetime, timedelta
 from collections import defaultdict
+import os
+import httpx
+import urllib.parse
+from fastapi.responses import RedirectResponse
+
+
+GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
+GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
+GOOGLE_REDIRECT_URL = os.getenv("GOOGLE_REDIRECT_URL")
 
 
 def format_tx_amount(tx, is_sender: bool):
@@ -347,3 +356,94 @@ async def update_me(
     await db.refresh(user)
 
     return user
+
+
+
+@router.get("/google/login")
+async def google_login():
+    google_auth_url = (
+        "https://accounts.google.com/o/oauth2/v2/auth?"
+        + urllib.parse.urlencode({
+            "client_id": GOOGLE_CLIENT_ID,
+            "redirect_uri": GOOGLE_REDIRECT_URL,
+            "response_type": "code",
+            "scope": "openid email profile",
+            "access_type": "offline",
+            "prompt": "consent"
+        })
+    )
+
+    return RedirectResponse(url=google_auth_url)
+
+
+
+@router.get("/google/callback")
+async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
+    if not code:
+        raise HTTPException(status_code=400, detail="Missing Google auth code")
+
+    # 1. Exchange code for access token
+    async with httpx.AsyncClient() as client:
+        token_response = await client.post(
+            "https://oauth2.googleapis.com/token",
+            data={
+                "code": code,
+                "client_id": GOOGLE_CLIENT_ID,
+                "client_secret": GOOGLE_CLIENT_SECRET,
+                "redirect_uri": GOOGLE_REDIRECT_URL,
+                "grant_type": "authorization_code",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
+    token_data = token_response.json()
+    access_token = token_data.get("access_token")
+
+    if not access_token:
+        raise HTTPException(status_code=400, detail="Failed to get Google token")
+
+    # 2. Fetch user profile from Google
+    async with httpx.AsyncClient() as client:
+        user_response = await client.get(
+            "https://www.googleapis.com/oauth2/v2/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"}
+        )
+
+    google_user = user_response.json()
+
+    email = google_user.get("email")
+    first_name = google_user.get("given_name", "")
+    last_name = google_user.get("family_name", "")
+    picture = google_user.get("picture")
+
+    if not email:
+        raise HTTPException(status_code=400, detail="Google email not found")
+
+    # 3. Check if user exists
+    result = await db.execute(select(User).where(User.email == email))
+    user = result.scalar_one_or_none()
+
+    # 4. Create user if not exists
+    if not user:
+        user = User(
+            email=email,
+            full_name=f"{first_name} {last_name}",
+            profile_pic=picture,
+            verified_email=True,
+            active=True
+        )
+        db.add(user)
+        await db.commit()
+        await db.refresh(user)
+
+    # 5. Create JWT tokens (your system)
+    access_token = create_access_token({"sub": str(user.id)})
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+
+    # 6. Return response (mobile-friendly)
+    return {
+        "status": "success",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer"
+    }

@@ -589,3 +589,42 @@ class SwapResponse(BaseModel):
     rate: Decimal
     status: str
     created_at: datetime
+
+class CardDetails(BaseModel):
+    card_number: str
+    expiry_month: str
+    expiry_year: str
+    cvv: str
+
+class MobileMoneyDetails(BaseModel):
+    phone_number: str
+    network: str        # MTN, AIRTEL, VODAFONE etc
+    country_code: str   # 233 for Ghana, 256 for Uganda
+
+class USSDDetails(BaseModel):
+    bank_code: str      # from GET /banks?country=NG
+
+class BankTransferDetails(BaseModel):
+    account_type: Literal["dynamic", "static"] = "dynamic"
+    narration: Optional[str] = None
+
+class CustomerDetails(BaseModel):
+    email: str
+    first_name: str
+    last_name: str
+    phone_number: Optional[str] = None
+
+class DepositRequest(BaseModel):
+    method: Literal["card", "mobile_money", "bank_transfer", "opay", "ussd"]
+    amount: float
+    currency: str
+
+    email: str
+    first_name: str
+    last_name: str
+    phone_number: Optional[str] = None
+
+    card: Optional[CardDetails] = None
+    mobile_money: Optional[MobileMoneyDetails] = None
+    ussd: Optional[USSDDetails] = None
+    bank_transfer: Optional[BankTransferDetails] = None

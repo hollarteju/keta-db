@@ -6,25 +6,24 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.future import select
-from models import Wallet, User, WalletType, WalletStatus, Transaction, LedgerEntry
+# from models import Wallet, User, WalletType, WalletStatus, Transaction, LedgerEntry
 from database import get_db
-from schemas import WalletResponse, VerifyAccountRequest, VerifyAccountResponse
 import base64
 from decimal import Decimal
 from sqlalchemy import func, case
 from utils.dependencies.auth import get_current_user
-from models import User
+# from models import User
 
 from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import Wallet, User, WalletType, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, UserRecipient
-from database import get_db
-from schemas import WalletResponse, FundWalletRequest, DevFundWalletRequest  # you'll define this schema for response
+from models import Wallet, User, WalletType, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry
+# from database import get_db
+from schemas import WalletResponse, DepositRequest, BankTransferDetails, DevFundWalletRequest  # you'll define this schema for response
 from uuid import uuid4
 import requests
 from dotenv import load_dotenv
-from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer
+from utils.flutterwave_apis import get_banks, create_payment_link, verify_account, initiate_bank_transfer, charge_card, charge_ussd, create_virtual_account, charge_mobile_money
 from typing import Optional
 import hmac
 import hashlib
@@ -85,6 +84,19 @@ async def transfer_funds(
         "data": result
     }
 
+
+@router.post("/deposit-dev")
+async def deposit_funds(
+    amount: float,
+    email: str
+):
+    result = await create_payment_link( amount, email)
+    
+    return {
+        "status": "success",
+        "message": "deposit link",
+        "data": result
+    }
 
 
 
@@ -311,3 +323,42 @@ async def flutterwave_webhook(
             send_email("sirolateju2022@gmail.com", "webhook", "keta_forgotten_password")
     # Always return 200 quickly — offload heavy work to a background task
     return {"result": data}
+
+
+
+@router.post("/deposit")
+async def deposit(payload: DepositRequest):
+    print(f"body request: {payload}")
+    match payload.method:
+        case "card":
+            if not payload.card:
+                raise HTTPException(400, "card details required")
+            return await card.charge_card(
+                payload.amount, payload.currency, payload.customer, payload.card
+            )
+        case "mobile_money":
+            if not payload.mobile_money:
+                raise HTTPException(400, "mobile_money details required")
+            return await charge_mobile_money(
+                payload.amount, payload.currency, payload.customer, payload.mobile_money
+            )
+        case "bank_transfer":
+            return await create_virtual_account(
+                amount=payload.amount,
+                currency=payload.currency,
+                email=payload.email,
+                first_name=payload.first_name,
+                last_name=payload.last_name,
+                phone_number=payload.phone_number,
+            )
+        # case "opay":
+        #     # same structure as mobile_money but type is "opay", next_action is redirect_url
+        #     return await opay.charge_opay(
+        #         payload.amount, payload.currency, payload.customer
+        #     )
+        case "ussd":
+            if not payload.ussd:
+                raise HTTPException(400, "ussd bank_code required")
+            return await charge_ussd(
+                payload.amount, payload.currency, payload.customer, payload.ussd
+            )
