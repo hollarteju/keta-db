@@ -5,9 +5,10 @@ from models import User, Wallet, LedgerEntry, TransactionStatus, Transaction, Cu
 from sqlalchemy import select, func, or_, desc
 from schemas import Token, LoginScheme, AuthenticatedUserResponse, UserUpdate, UserProfileResponse, LoginPassword
 from database import get_db, create_access_token, create_refresh_token
-from utils.dependencies.auth import get_current_user
 from utils.email_config import send_email
 import random
+from utils.dependencies.auth import get_current_user
+
 from datetime import datetime, timedelta
 from collections import defaultdict
 import os
@@ -257,7 +258,8 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
     quick_transaction_contacts = [
         {
             "id": contact.id,
-            "full_name": contact.full_name,
+            "first_name": contact.first_name,
+            "last_name": contact.last_name,
             "profile_pic": contact.profile_pic,
             "email": contact.email,
         }
@@ -304,7 +306,8 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
         # Basic user info
         "id": user.id,
         "email": user.email,
-        "full_name": user.full_name,
+        "first_name": user.first_name,
+        "last_name": user.last_name,
         "phone_number": user.phone_number,
         "address": user.address,
         "country": user.country,
@@ -344,11 +347,20 @@ async def update_me(
 ):
 
     # Update fields if they are provided
-    if payload.full_name is not None:
-        user.full_name = payload.full_name
+    if payload.first_name is not None:
+        user.first_name = payload.first_name
+
+    if payload.last_name is not None:
+        user.last_name = payload.last_name
 
     if payload.profile_pic is not None:
         user.profile_pic = payload.profile_pic
+    
+    if payload.phone_number is not None:
+        user.phone_number = payload.phone_number
+
+    if payload.country_code is not None:
+        user.country_code = payload.country_code
 
     # Save changes
     db.add(user)
@@ -427,7 +439,8 @@ async def google_callback(code: str, db: AsyncSession = Depends(get_db)):
     if not user:
         user = User(
             email=email,
-            full_name=f"{first_name} {last_name}",
+            first_name= first_name,
+            last_name= last_name,
             profile_pic=picture,
             verified_email=True,
             active=True

@@ -1,27 +1,21 @@
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker
 from sqlalchemy.future import select
 from sqlalchemy import text
 from fastapi.security import OAuth2PasswordBearer
-from typing import Optional, Annotated
+from typing import  Annotated
 from jwt.exceptions import ExpiredSignatureError, InvalidTokenError
-from fastapi import Depends, FastAPI, HTTPException, status
+from fastapi import Depends, HTTPException, status
 from datetime import datetime, timedelta, timezone
 import jwt
 import os
 from dotenv import load_dotenv
-from schemas import Token, TokenData
-import os
 from datetime import datetime, timedelta, timezone
 from typing import Annotated, Dict
-from dotenv import load_dotenv
-from fastapi import Depends, HTTPException, status
-from fastapi.security import OAuth2PasswordBearer
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
-from sqlalchemy.orm import declarative_base
 from jose import jwt, ExpiredSignatureError, JWTError
 from schemas import TokenData
+from fastapi.security import HTTPBearer
+
 
 load_dotenv()
 
@@ -31,7 +25,7 @@ ALGORITHM = os.getenv("ALGORITHM")
 
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 REFRESH_TOKEN_EXPIRE_DAYS = 7
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/v1/login")
+security = HTTPBearer()
 
 Base = declarative_base()
 metadata = Base.metadata
@@ -61,7 +55,7 @@ def create_refresh_token(data: Dict):
     return encoded_jwt
 
 # Dependency to get current user from token
-def get_current_user(token: Annotated[str, Depends(oauth2_scheme)]):
+def get_current_user(token: Annotated[str, Depends(security)]):
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",

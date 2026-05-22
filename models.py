@@ -78,6 +78,7 @@ class LedgerEntryType(PyEnum):
     BUY = "buy"
     SELL = "sell"
     FEE = "fee"
+    LOCKED = "locked"
 
 
 class WalletStatus(PyEnum):
@@ -103,6 +104,13 @@ class SwapStatus(PyEnum):
     FILLED = "filled"
     CANCELLED = "cancelled"
 
+
+class DepositMethod(PyEnum):
+    BANK_TRANSFER = "bank_transfer"
+    CARD = "card"
+    MOBILE_MONEY = "mobile_money"
+    USSD = "ussd"
+
 class User(Base):
     __tablename__ = "users"
     
@@ -110,6 +118,9 @@ class User(Base):
     email = Column(String(255), unique=True, index=True, nullable=False)
     password = Column(String(255), nullable=False)
     full_name = Column(String(100), index=True, nullable=True)
+    first_name = Column(String(100), index=True, nullable=True)
+    last_name = Column(String(100), index=True, nullable=True)
+    country_code = Column(String(20), nullable=True, index=True)
     phone_number = Column(String(20), nullable=True, index=True)
     address = Column(String(255), nullable=True, index=True)
     country = Column(String(100), nullable=True, index=True)
@@ -236,12 +247,19 @@ class Wallet(Base):
         wallet.locked_balance += amount
         print(f"check wallet: {wallet.locked_balance}")
         db.add(wallet)
-        await db.commit()
-        await db.refresh(wallet)
 
         return wallet
     
-
+    @staticmethod
+    async def unlock_balance(db: AsyncSession, wallet_id: str, amount: Decimal):
+        """In case withdrawal fails"""
+        result = await db.execute(
+            select(Wallet).where(Wallet.id == wallet_id).with_for_update()
+        )
+        wallet = result.scalar_one()
+        wallet.locked_balance = (wallet.locked_balance or Decimal("0")) - amount
+        return wallet
+    
     @staticmethod
     async def spend_locked_balance(db: AsyncSession, wallet_id: str, amount: Decimal):
         result = await db.execute(
@@ -256,10 +274,44 @@ class Wallet(Base):
         wallet.balance -= amount
 
         db.add(wallet)
-        await db.commit()
-        await db.refresh(wallet)
+        # await db.commit()
+        # await db.refresh(wallet)
 
         return wallet
+    
+
+class DepositIntent(Base):
+    __tablename__ = "deposit_intents"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    wallet_id = Column(String(36), ForeignKey("wallets.id"), nullable=False, index=True)
+
+    reference = Column(String(100), unique=True, index=True, nullable=False)
+
+    amount = Column(Numeric(18, 2), nullable=False)
+    currency = Column(String(10), nullable=False)
+
+    method = Column(Enum(DepositMethod), nullable=False)
+
+    status = Column(
+        Enum(TransactionStatus),
+        default=TransactionStatus.PENDING,
+        index=True
+    )
+    flutterwave_response = Column(JSON, nullable=True)
+
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+    updated_at = Column(DateTime(timezone=True), default=func.now(), onupdate=func.now())
+
+    # relationships
+    user = relationship("User")
+    wallet = relationship("Wallet")
+
+    
 
 class UserRecipient(Base):
     __tablename__ = "user_recipients"
@@ -317,6 +369,7 @@ class Asset(Base):
 
     created_at = Column(DateTime(timezone=True), default=func.now())
 
+
 class ExchangeRate(Base):
     __tablename__ = "exchange_rates"
 
@@ -357,8 +410,8 @@ class Transaction(Base):
     from_currency = Column(String(10))
     to_currency = Column(String(10))
 
-    from_amount = Column(Integer, nullable=False)
-    to_amount = Column(Integer, nullable=True)
+    from_amount = Column(Numeric(18, 2), nullable=False)
+    to_amount = Column(Numeric(18, 2), nullable=True)
 
     rate = Column(Integer)
     reference = Column(String(100), unique=True, index=True)
@@ -417,9 +470,32 @@ class Withdrawal(Base):
     amount = Column(Integer)
     destination = Column(String(255))
 
-    status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
+    status = Column(Enum(TransactionStatus))
     created_at = Column(DateTime(timezone=True), default=func.now())
-    
+
+
+class WithdrawalIntent(Base):
+    __tablename__ = "withdrawal_intents"
+
+    id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
+
+    user_id = Column(String(36), ForeignKey("users.id"), index=True)
+    wallet_id = Column(String(36), ForeignKey("wallets.id"), index=True)
+
+    reference = Column(String(100), unique=True, index=True)
+
+    amount = Column(Numeric(18, 2), nullable=False)
+    currency = Column(String(10), nullable=False)
+
+    account_number = Column(String(30), nullable=False)
+    bank_code = Column(String(20), nullable=False)
+
+    status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
+
+    flutterwave_response = Column(JSON, nullable=True)
+
+    created_at = Column(DateTime(timezone=True), default=func.now())
+
 
 class Swap(Base):
     __tablename__ = "swaps"
@@ -479,3 +555,5 @@ class SwapExecution(Base):
 
     swap = relationship("Swap")
     taker = relationship("User")
+
+

@@ -65,7 +65,8 @@ def sanitize_user(user: User) -> dict:
     return {
         "id": user.id,
         "email": user.email,
-        "full_name": user.full_name or "",
+        "first_name": user.first_name or "",
+        "last_name": user.last_name or "",
         "phone_number": user.phone_number or "",
         "address": user.address or "",
         "country": user.country or "",

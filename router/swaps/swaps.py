@@ -3,14 +3,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from decimal import Decimal
 
-from database import get_db
+from database import get_db, get_current_user
 from models import Swap, Wallet, SwapStatus, Transaction, TransactionType, TransactionStatus, SwapExecution, InsufficientFundsError, CurrencyType, User
 from schemas import SwapCreate, SwapUpdate
 from models import Wallet
 from utils.rates import fetch_currency_rates
 from uuid import uuid4
 from datetime import datetime
-from utils.dependencies.auth import get_current_user
 
 
 router = APIRouter(prefix="/swaps", tags=["Swaps"])
@@ -52,16 +51,16 @@ async def create_swap(data: SwapCreate, db: AsyncSession = Depends(get_db)):
     return swap
 
 
-@router.get("/")
-async def get_all_swaps(db: AsyncSession = Depends(get_db)):
+# @router.get("/")
+# async def get_all_swaps(db: AsyncSession = Depends(get_db)):
 
-    result = await db.execute(
-        select(Swap).where(Swap.status == SwapStatus.OPEN)
-    )
+#     result = await db.execute(
+#         select(Swap).where(Swap.status == SwapStatus.OPEN)
+#     )
 
-    swaps = result.scalars().all()
+#     swaps = result.scalars().all()
 
-    return swaps
+#     return swaps
 
 
 @router.get("/me")

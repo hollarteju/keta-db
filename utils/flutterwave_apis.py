@@ -188,13 +188,12 @@ async def create_payment_link(amount: float, email: str):
 
 
 
-async def charge_card(amount, currency, customer, card):
+async def charge_card(amount, currency, customer, card, reference):
     nonce = str(uuid4())
     payload = {
         "amount": amount,
         "currency": currency,
-        "reference": str(uuid4()),
-        "redirect_url": "https://yourdomain.com/deposit/callback",
+        "reference": reference,
         "payment_method": {
             "type": "card",
             "card": {
@@ -245,7 +244,7 @@ async def charge_mobile_money(amount, currency, customer, mobile_money):
     }
 
 
-async def create_customer(email, first_name, last_name, phone_number):
+async def create_customer(email, first_name, last_name, country_code, phone_number):
     payload = {
         "email": email,
         "name": {
@@ -253,29 +252,36 @@ async def create_customer(email, first_name, last_name, phone_number):
             "last": last_name
         },
         "phone": {
-            "country_code": "234",   # Nigeria — change per country
+            "country_code": country_code,   # Nigeria — change per country
             "number": phone_number
         }
     }
 
-    print("CUSTOMER PAYLOAD:", payload)
+    try:
+            result = await request_header("post", "/customers", payload)
+            return result["data"]["id"]
 
-    result = await request_header("post", "/customers", payload)
-    return result["data"]["id"]
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            existing_id = await get_customer_by_email(email)
 
+            if existing_id:
+                return existing_id
 
+        raise
 
-# async def get_payment_method_id():
-#     result = await request_header("get", "/payment-methods")
-    
-#     # Find bank transfer method
-#     methods = result["data"]
+async def get_customer_by_email(email: str):
+    result = await request_header(
+        "get",
+        f"/customers?email={email}",
+        None
+    )
 
-#     for m in methods:
-#         if m.get("type") == "bank_transfer":
-#             return m["id"]
+    data = result.get("data", [])
+    if data:
+        return data[0]["id"]
 
-#     raise Exception("Bank transfer payment method not found")
+    return None
 
 async def create_virtual_account(
     amount: float,
@@ -283,19 +289,20 @@ async def create_virtual_account(
     email: str,
     first_name: str,
     last_name: str,
-    phone_number: str
+    country_code: str,
+    phone_number: str,
+    reference: str
 ):
-    customer_id = await create_customer(email, first_name, last_name, phone_number)
+    customer_id = await create_customer(email, first_name, last_name, country_code, phone_number)
 
     payload = {
-        "reference": f"DEP-{uuid4()}",
+        "reference": reference,
         "amount": str(amount),
         "currency": currency,
         "customer_id": customer_id,
-        "expiry": 60,
-    "currency": "NGN",
-    "account_type": "dynamic",
-    "narration": "Cornelius Ashley-Osuzoka"
+        "expiry": 180,
+        "account_type": "dynamic",
+        "narration": "Cornelius Ashley-Osuzoka"
     }
 
     response = await request_header(

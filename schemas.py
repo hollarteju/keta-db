@@ -73,13 +73,20 @@ class companyBase(BaseModel):
     token_expire_at: Optional[str] = None
 
 class CreateUser(BaseModel):
-    full_name: str
+    first_name: str
+    last_name: str
     email: EmailStr  
     password: SixDigitPassword
 
 class UserUpdate(BaseModel):
-    full_name: Optional[str] = None
-    profile_pic: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    profile_pic: Optional[str] = None 
+    country_code: Optional[str] = None
+    phone_number: Optional[str] = None
+    country_code: Optional[str] = None
+    address: Optional[str] = None
+    country: Optional[str] = None
 
     class Config:
         orm_mode = True
@@ -87,8 +94,10 @@ class UserUpdate(BaseModel):
 class UserResponse(BaseModel):
     id: str
     email: str
-    full_name: Optional[str] = None
+    first_name: str
+    last_name: str
     phone_number: Optional[str] = None
+    country_code: Optional[str] = None
     address: Optional[str] = None
     country: Optional[str] = None
     verified_email: bool
@@ -108,7 +117,8 @@ class ResendStaffCode(BaseModel):
 
 class UserResponse(BaseModel):
     id: UUID
-    full_name: str
+    first_name: str
+    last_name: str
     email: EmailStr
     created_at: Optional[datetime]
 
@@ -129,7 +139,9 @@ class EmailSchema(BaseModel):
 class AuthenticatedUserResponse(BaseModel):
     id: str
     email: str
-    full_name: Optional[str]
+    first_name: Optional[str]
+    last_name: Optional[str]
+    country_code: Optional[str]
     phone_number: Optional[str]
     address: Optional[str]
     country: Optional[str]
@@ -227,7 +239,8 @@ class TotalCurrencySaved(BaseModel):
 class OtherUserInTransaction(BaseModel):
     """Other user details in a transaction"""
     id: Optional[str] = Field(None, description="User's unique identifier")
-    full_name: Optional[str] = Field(None, description="User's full name")
+    first_name: Optional[str] = Field(None, description="User's first name")
+    last_name: Optional[str] = Field(None, description="User's last name")
     profile_pic: Optional[str] = Field(None, description="URL to user's profile picture")
 
     class Config:
@@ -315,7 +328,8 @@ class TransactionGroup(BaseModel):
 class QuickTransactionUser(BaseModel):
     """Quick transaction contact information"""
     id: str = Field(..., description="User's unique identifier")
-    full_name: Optional[str] = Field(None, description="User's full name")
+    first_name: Optional[str] = Field(None, description="User's first name")
+    last_name: Optional[str] = Field(None, description="User's last name")
     profile_pic: Optional[str] = Field(None, description="URL to user's profile picture")
     email: str = Field(..., description="User's email address")
 
@@ -373,7 +387,8 @@ class UserProfileResponse(BaseModel):
     # Basic user information
     id: str = Field(..., description="User's unique identifier (UUID)")
     email: str = Field(..., description="User's email address")
-    full_name: Optional[str] = Field(None, description="User's full name")
+    first_name: Optional[str] = Field(None, description="User's first name")
+    last_name: Optional[str] = Field(None, description="User's last name")
     phone_number: Optional[str] = Field(None, description="User's phone number")
     address: Optional[str] = Field(None, description="User's physical address")
     country: Optional[str] = Field(None, description="User's country")
@@ -545,6 +560,7 @@ class WalletResponse(BaseModel):
     balance: Decimal
     total_credit: Decimal
     total_debit: Decimal
+    locked_balance: Decimal
     transaction_count: int
     created_at: datetime
 
@@ -596,17 +612,15 @@ class CardDetails(BaseModel):
     expiry_year: str
     cvv: str
 
-class MobileMoneyDetails(BaseModel):
-    phone_number: str
-    network: str        # MTN, AIRTEL, VODAFONE etc
-    country_code: str   # 233 for Ghana, 256 for Uganda
+# class MobileMoneyDetails(BaseModel):
+#     phone_number: str
+#     network: str        # MTN, AIRTEL, VODAFONE etc
+#     country_code: str   # 233 for Ghana, 256 for Uganda
 
-class USSDDetails(BaseModel):
-    bank_code: str      # from GET /banks?country=NG
+# class USSDDetails(BaseModel):
+#     bank_code: str      # from GET /banks?country=NG
 
-class BankTransferDetails(BaseModel):
-    account_type: Literal["dynamic", "static"] = "dynamic"
-    narration: Optional[str] = None
+
 
 class CustomerDetails(BaseModel):
     email: str
@@ -618,13 +632,22 @@ class DepositRequest(BaseModel):
     method: Literal["card", "mobile_money", "bank_transfer", "opay", "ussd"]
     amount: float
     currency: str
-
-    email: str
-    first_name: str
-    last_name: str
-    phone_number: Optional[str] = None
-
     card: Optional[CardDetails] = None
-    mobile_money: Optional[MobileMoneyDetails] = None
-    ussd: Optional[USSDDetails] = None
-    bank_transfer: Optional[BankTransferDetails] = None
+    # mobile_money: Optional[MobileMoneyDetails] = None
+    # ussd: Optional[USSDDetails] = None
+
+
+class DepositIntentOut(BaseModel):
+    id: str
+    user_id: str
+    wallet_id: str
+    reference: str
+    amount: Decimal
+    currency: str
+    method: str
+    status: str
+    flutterwave_response: Optional[dict] = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
