@@ -3,7 +3,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from decimal import Decimal
 
-from database import get_db, get_current_user
+from database import get_db
+from utils.dependencies.auth import get_current_user
 from models import Swap, Wallet, SwapStatus, Transaction, TransactionType, TransactionStatus, SwapExecution, InsufficientFundsError, CurrencyType, User
 from schemas import SwapCreate, SwapUpdate
 from models import Wallet
