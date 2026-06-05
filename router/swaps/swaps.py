@@ -11,6 +11,7 @@ from models import Wallet
 from utils.rates import fetch_currency_rates
 from uuid import uuid4
 from datetime import datetime
+from sqlalchemy.orm import selectinload
 
 
 router = APIRouter(prefix="/swaps", tags=["Swaps"])
@@ -52,16 +53,38 @@ async def create_swap(data: SwapCreate, db: AsyncSession = Depends(get_db)):
     return swap
 
 
-# @router.get("/")
-# async def get_all_swaps(db: AsyncSession = Depends(get_db)):
+@router.get("/")
+async def get_all_swaps(
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db)
+):
 
-#     result = await db.execute(
-#         select(Swap).where(Swap.status == SwapStatus.OPEN)
-#     )
+    result = await db.execute(
+        select(Swap)
+        .options(selectinload(Swap.creator))
+        .where(Swap.status == SwapStatus.OPEN)
+    )
 
-#     swaps = result.scalars().all()
+    swaps = result.scalars().all()
 
-#     return swaps
+    return [
+        {
+            "id": swap.id,
+            "wallet_id": swap.wallet_id,
+            "from_currency": swap.from_currency,
+            "to_currency": swap.to_currency,
+            "amount": swap.amount,
+            "min_amount": swap.min_amount,
+            "remaining_amount": swap.remaining_amount,
+            "rate": swap.rate,
+            "expires_at": swap.expires_at,
+            "status": swap.status,
+
+            # 👇 key part
+            "creator_name": "you" if swap.creator_id == user.id else swap.creator.full_name
+        }
+        for swap in swaps
+    ]
 
 
 @router.get("/me")
