@@ -526,88 +526,67 @@ async def deposit(
 #         print("Webhook error:", str(e))
 #         raise
 
-
 async def process_deposit(
     db: AsyncSession,
-    data: dict
+    data: dict,
 ):
-
     reference = data.get("reference")
-    amount = Decimal(str(data.get("amount",0)))
+    amount = Decimal(str(data.get("amount", 0)))
     currency = data.get("currency")
 
-    async with db.begin():
+    result = await db.execute(
+        select(DepositIntent)
+        .where(DepositIntent.reference == reference)
+    )
 
-        result = await db.execute(
-            select(DepositIntent)
-            .where(
-                DepositIntent.reference==reference
-            )
-        )
+    intent = result.scalar_one_or_none()
 
-        intent = result.scalar_one_or_none()
+    if not intent:
+        return {"message": "intent not found"}
 
-        if not intent:
-            return {"message":"intent not found"}
+    if intent.status == TransactionStatus.COMPLETED:
+        return {"message": "already processed"}
 
-        if intent.status == TransactionStatus.COMPLETED:
-            return {"message":"already processed"}
+    intent.status = TransactionStatus.COMPLETED
+    intent.flutterwave_response = data
 
-        intent.status = TransactionStatus.COMPLETED
-        intent.flutterwave_response = data
+    tx = Transaction(
+        id=str(uuid4()),
+        header=TransactionHeader.WALLET_FUND.value,
+        description="Wallet funding via Flutterwave",
+        from_user_id=intent.user_id,
+        to_user_id=intent.user_id,
+        type=TransactionType.DEPOSIT,
+        status=TransactionStatus.COMPLETED,
+        from_currency=currency,
+        to_currency=currency,
+        from_amount=amount,
+        to_amount=amount,
+        reference=reference
+    )
 
-        tx = Transaction(
-            id=str(uuid4()),
-            header=TransactionHeader.WALLET_FUND.value,
-            description="Wallet funding via Flutterwave",
-            from_user_id=intent.user_id,
-            to_user_id=intent.user_id,
-            type=TransactionType.DEPOSIT,
-            status=TransactionStatus.COMPLETED,
-            from_currency=currency,
-            to_currency=currency,
-            from_amount=amount,
-            to_amount=amount,
-            reference=reference
-        )
+    db.add(tx)
 
-        db.add(tx)
+    await db.flush()
 
-        await db.flush()
+    await Wallet.credit_wallet(
+        db=db,
+        wallet_id=intent.wallet_id,
+        amount=amount,
+        tx_id=tx.id
+    )
 
-        wallet_result = await db.execute(
-            select(Wallet)
-            .where(
-                Wallet.id==intent.wallet_id
-            )
-            .with_for_update()
-        )
-
-        wallet = wallet_result.scalar_one()
-
-        wallet.balance = (
-            Decimal(str(wallet.balance or 0))
-            + amount
-        )
-
-        ledger = LedgerEntry(
-            id=str(uuid4()),
-            wallet_id=wallet.id,
-            transaction_id=tx.id,
-            amount=amount,
-            entry_type=LedgerEntryType.DEPOSIT
-        )
-
-        db.add(ledger)
+    await db.commit()
 
     return {
-        "status":"success",
-        "message":"wallet credited"
+        "status": "success",
+        "message": "wallet credited"
     }
 
 
+
 async def process_withdrawal(
-    db: AsyncSession,
+    db,
     data: dict
 ):
 
