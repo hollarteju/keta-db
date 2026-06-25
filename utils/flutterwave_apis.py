@@ -152,10 +152,14 @@ async def initiate_bank_transfer(
 
     async with httpx.AsyncClient() as client:
         response = await client.post(url, json=payload, headers=headers)
-        print("Status:", response.status_code)
-        print("Response:", response.text)
-        response.raise_for_status()
-        return response.json()
+        response_data = response.json()
+
+        print(response_data)
+
+        if response.status_code >= 400:
+            raise Exception(response_data)
+
+        return response_data
 
 
 async def create_payment_link(amount: float, email: str):
