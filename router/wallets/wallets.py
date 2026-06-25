@@ -88,36 +88,40 @@ async def transfer_funds(
 
     try:
         result = await db.execute(
-            select(Wallet)
-            .where(
+            select(Wallet).where(
                 Wallet.user_id == user.id,
                 Wallet.currency == currency
             )
         )
-        
+
         wallet = result.scalar_one_or_none()
 
         if not wallet:
-            raise HTTPException(status_code=404, detail="Wallet not found")
+            raise HTTPException(404, "Wallet not found")
 
         current_balance = wallet.balance or Decimal("0")
         current_locked = wallet.locked_balance or Decimal("0")
         available_balance = current_balance - current_locked
 
-        # === Main Checks ===
+        if amount_dec <= 0:
+            raise HTTPException(
+                status_code=400,
+                detail="Amount must be greater than zero"
+            )
+
         if available_balance < amount_dec:
             raise HTTPException(
-                status_code=400, 
+                status_code=400,
                 detail=f"Insufficient balance. Available: {available_balance} {currency}"
             )
 
-        if amount_dec <= 0:
-            raise HTTPException(status_code=400, detail="Amount must be greater than zero")
+        # Lock funds
+        await Wallet.lock_balance(
+            db,
+            wallet.id,
+            amount_dec
+        )
 
-        # === Lock the funds ===
-        await Wallet.lock_balance(db, wallet.id, amount_dec)   # ← Use lock, not spend
-
-        # === Create Withdrawal Intent ===
         intent = WithdrawalIntent(
             id=str(uuid4()),
             user_id=user.id,
@@ -129,27 +133,91 @@ async def transfer_funds(
             bank_code=bank_code,
             status=TransactionStatus.PENDING
         )
+
         db.add(intent)
-        
-        
-        await db.commit()
-        print(f"EXECUTE DB TESTING....................2")
-        await db.refresh(intent)
-        return {
-            "status": "processing",
-            "reference": reference,
-            "message": "Withdrawal request received and funds locked",
-            "available_balance": float(available_balance - amount_dec)
-        }
+        await db.flush()
+
+        try:
+            transfer_response = await initiate_bank_transfer(
+                account_number=account_number,
+                bank_code=bank_code,
+                amount=float(amount_dec),
+                source_currency=currency,
+                destination_currency=currency,
+            )
+
+            print("Flutterwave response:", transfer_response)
+
+            status = (
+                transfer_response.get("status")
+                or transfer_response.get("data", {}).get("status")
+            )
+
+            if str(status).lower() in [
+                "success",
+                "completed",
+                "queued",
+                "pending"
+            ]:
+
+               
+
+                wallet.balance -= amount_dec
+                wallet.locked_balance -= amount_dec
+
+                intent.status = TransactionStatus.SUCCESS
+
+                intent.provider_reference = (
+                    transfer_response
+                    .get("data", {})
+                    .get("id")
+                )
+
+                await db.commit()
+
+                return {
+                    "status": "success",
+                    "reference": reference,
+                    "transfer_response": transfer_response,
+                    "available_balance": float(
+                        wallet.balance - wallet.locked_balance
+                    )
+                }
+
+            else:
+                raise Exception(
+                    f"Transfer rejected: {transfer_response}"
+                )
+
+        except Exception as transfer_error:
+
+            # Unlock funds
+            wallet.locked_balance -= amount_dec
+
+            intent.status = TransactionStatus.FAILED
+            intent.failure_reason = str(transfer_error)
+
+            await db.commit()
+
+            raise HTTPException(
+                status_code=400,
+                detail=f"Transfer failed: {str(transfer_error)}"
+            )
 
     except HTTPException:
-        await db.rollback()
         raise
+
     except Exception as e:
         await db.rollback()
-        logger.exception(f"Withdrawal error for user {user.id}")
-        raise HTTPException(status_code=500, detail="Internal server error")
 
+        logger.exception(
+            f"Withdrawal error for user {user.id}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Internal server error"
+        )
 
 
 @router.post("/create", response_model=WalletResponse)
@@ -276,43 +344,6 @@ async def get_user_wallets(
     return responses
 
 
-# @router.post("/deposit")
-# async def deposit(
-#     payload: DepositRequest,
-#     user: User = Depends(get_current_user)
-#     ):
-#     print(f"transfer method: {user}")
-#     match payload.method:
-#         case "card":
-#             if not payload.card:
-#                 raise HTTPException(400, "card details required")
-#             return await charge_card(
-#                 payload.amount, payload.currency, payload.card
-#             )
-#         # case "mobile_money":
-#         #     if not payload.mobile_money:
-#         #         raise HTTPException(400, "mobile_money details required")
-#         #     return await charge_mobile_money(
-#         #         payload.amount, payload.currency, payload.mobile_money
-#         #     )
-
-#         case "bank_transfer":
-#             return await create_virtual_account(
-#                 amount=payload.amount,
-#                 currency=payload.currency,
-#                 email=user.email,
-#                 first_name=user.first_name,
-#                 last_name=user.last_name,
-#                 country_code=user.country_code,
-#                 phone_number=user.phone_number,
-#             )
-        
-#         # case "ussd":
-#         #     if not payload.ussd:
-#         #         raise HTTPException(400, "ussd bank_code required")
-#         #     return await charge_ussd(
-#         #         payload.amount, payload.currency, payload.ussd
-#         #     )
 @router.get("/deposit-intents/me")
 async def get_my_deposit_intents(
     user: User = Depends(get_current_user),
@@ -431,100 +462,6 @@ async def deposit(
 
         raise
 
-
-
-# @router.post("/webhook/keta")
-# async def flutterwave_webhook(
-#     request: Request,
-#     db: AsyncSession = Depends(get_db)
-# ):
-
-#     raw_body = await request.body()
-#     payload = json.loads(raw_body)
-
-#     signature = request.headers.get("flutterwave-signature")
-#     if not signature:
-#         raise HTTPException(401, "Missing webhook signature")
-
-#     data = payload.get("data", {})
-
-   
-#     if data.get("status") != "succeeded":
-#         return {"message": "payment not successful"}
-
-#     reference = data.get("reference")
-#     amount = Decimal(str(data.get("amount", 0)))
-#     currency = data.get("currency")
-
-#     if not reference:
-#         return {"message": "missing reference"}
-
-#     try:
-#         async with db.begin():
-
-#             result = await db.execute(
-#                 select(DepositIntent).where(
-#                     DepositIntent.reference == reference
-#                 )
-#             )
-#             intent = result.scalar_one_or_none()
-#             print(f"WALLERT REFERENCE: {reference}")
-#             if not intent:
-#                 return {"message": "intent not found"}
-#             print("STATUS IN NOT UPDATED")
-#             if intent.status == TransactionStatus.COMPLETED:
-#                 return {"message": "already processed"}
-
-#             print("RESPONSE DATA")
-#             intent.status = TransactionStatus.COMPLETED
-#             intent.flutterwave_response = data
-
-#             tx = Transaction(
-#                 id=str(uuid4()),
-#                 header=TransactionHeader.WALLET_FUND.value,
-#                 description="Wallet funding via Flutterwave",
-#                 from_user_id=intent.user_id,
-#                 to_user_id=intent.user_id,
-#                 type=TransactionType.DEPOSIT,
-#                 status=TransactionStatus.COMPLETED,
-#                 from_currency=currency,
-#                 to_currency=currency,
-#                 from_amount=amount,
-#                 to_amount=amount,
-#                 reference=reference
-#             )
-
-#             db.add(tx)
-#             await db.flush()
-#             print("TRANSACTION DATA")
-#             wallet_result = await db.execute(
-#                 select(Wallet).where(
-#                     Wallet.id == intent.wallet_id
-#                 ).with_for_update()
-#             )
-#             wallet = wallet_result.scalar_one()
-
-#             wallet.balance = Decimal(str(wallet.balance or 0)) + amount
-#             print("WALLET DATA")
-#             ledger = LedgerEntry(
-#                 id=str(uuid4()),
-#                 wallet_id=wallet.id,
-#                 transaction_id=tx.id,
-#                 amount=amount,
-#                 entry_type=LedgerEntryType.DEPOSIT
-#             )
-
-#             db.add(ledger)
-
-#         return {
-#             "status": "success",
-#             "message": "wallet credited",
-#             "reference": reference
-#         }
-
-#     except Exception as e:
-#         print("Webhook error:", str(e))
-#         raise
 
 async def process_deposit(
     db: AsyncSession,
