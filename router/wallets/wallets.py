@@ -528,7 +528,7 @@ async def process_withdrawal(
     data: dict,
 ):
     reference = data.get("reference")
-    status = (data.get("status") or "").upper()
+    status = data.get("status")
 
     async with db.begin():
 
