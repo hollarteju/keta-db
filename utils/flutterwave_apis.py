@@ -135,7 +135,7 @@ async def initiate_bank_transfer(
     payload = {
         "action": action,
         "type": "bank",
-        "callback_url": "https://recruiting-essential-kentucky-hebrew.trycloudflare.com/api/v1/webhook/keta",
+        "callback_url": "https://keta-db-05ke.onrender.com/api/v1/webhook/keta",
         "narration": "Wallet Withdrawal",
         "reference": reference,
         "payment_instruction": {
