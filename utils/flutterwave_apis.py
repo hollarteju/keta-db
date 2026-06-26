@@ -111,8 +111,6 @@ async def verify_account(account: str, bank_code: str, currency: str):
 
 
 
-
-
 async def initiate_bank_transfer(
     account_number: str,
     bank_code: str,
@@ -120,76 +118,54 @@ async def initiate_bank_transfer(
     source_currency: str = "NGN",
     destination_currency: str = "NGN",
     action: str = "instant",
+    reference: str | None = None,
 ):
     token_data = get_flutterwave_token()
     access_token = token_data.get("access_token")
 
     url = f"{FLUTTERWAVE_BASE_URL}/direct-transfers"
 
+    reference = reference or f"WTH-{uuid4()}"
+
+    # url = "https://developersandbox-api.flutterwave.com/direct-transfers"
+
     headers = {
         "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
+        "X-Trace-Id": str(uuid4()),
+        "X-Idempotency-Key": str(uuid4())
     }
 
     payload = {
         "action": action,
         "type": "bank",
+        "callback_url": "https://grounds-gcc-steel-coat.trycloudflare.com/api/v1/webhook/keta",
+        "narration": "Wallet Withdrawal",
+        "reference": reference,
         "payment_instruction": {
-            "source_currency": source_currency,
             "amount": {
-                "applies_to": "source_currency",
-                "value": amount
+                "value": amount,
+                "applies_to": "destination_currency"
             },
+            "source_currency": source_currency,
+            "destination_currency": destination_currency,
             "recipient": {
                 "bank": {
-                    "account_number": account_number,
-                    "code": bank_code
+                    "code": bank_code,
+                    "account_number": account_number
                 }
-            },
-            "destination_currency": destination_currency
+            }
         }
     }
 
-    async with httpx.AsyncClient() as client:
-        response = await client.post(url, json=payload, headers=headers)
-        response_data = response.json()
+    async with httpx.AsyncClient(timeout=60) as client:
+        response = await client.post(
+            url,
+            json=payload,
+            headers=headers
+        )
 
-        print(response_data)
-
-        if response.status_code >= 400:
-            raise Exception(response_data)
-
-        return response_data
-
-
-async def create_payment_link(amount: float, email: str):
-    token_data = get_flutterwave_token()
-    access_token = token_data.get("access_token")
-
-    url = f"{FLUTTERWAVE_BASE_URL}/payments"
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "Content-Type": "application/json"
-    }
-
-    payload = {
-        "tx_ref": f"tx-{uuid4()}",
-        "amount": amount,
-        "currency": "NGN",
-        "redirect_url": "https://yourdomain.com/payment-success",
-        "customer": {
-            "email": email
-        },
-        "customizations": {
-            "title": "Wallet Funding",
-            "description": "Deposit into wallet"
-        }
-    }
-
-    async with httpx.AsyncClient() as client:
-        res = await client.post(url, json=payload, headers=headers)
-        return res.json()
+        return response.json()
 
 
 
@@ -274,6 +250,8 @@ async def create_customer(email, first_name, last_name, country_code, phone_numb
                 return existing_id
 
         raise
+
+    
 
 async def get_customer_by_email(email: str):
     result = await request_header(
