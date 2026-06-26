@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 # from router.settings import profile_picture
 from dotenv import load_dotenv
 import os
-
+import httpx
 from router.auth import register, verify_account, resend_code, forgotten_password, update_company, login
 from router.exchange_rate import rate 
 from router.wallets import wallets
@@ -55,3 +55,8 @@ app.include_router(swaps.router)
 #     await clear_alembic_version() 
 #     await reset_db()  
 #     return "Operation completed"
+@app.get("/")
+async def outbound_ip():
+    async with httpx.AsyncClient() as client:
+        r = await client.get("https://api.ipify.org?format=json")
+        return r.json()
