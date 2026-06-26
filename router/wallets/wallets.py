@@ -382,8 +382,6 @@ async def transfer_funds(
         db.add(tx)
         await db.flush()
 
-        intent.transaction_id = tx.id
-
         try:
             transfer_response = await initiate_bank_transfer(
                 account_number=account_number,
@@ -391,6 +389,7 @@ async def transfer_funds(
                 amount=float(amount_dec),
                 source_currency=currency,
                 destination_currency=currency,
+                reference=reference
             )
 
             status = (
@@ -436,7 +435,6 @@ async def transfer_funds(
             wallet.locked_balance -= amount_dec
 
             intent.status = TransactionStatus.FAILED
-            intent.failure_reason = str(transfer_error)
 
             await db.commit()
 
@@ -527,33 +525,43 @@ async def process_withdrawal(
     db,
     data: dict,
 ):
+    print("WEBHOOK BODY:", data)
+
     reference = data.get("reference")
-    status = data.get("status")
+    status = (data.get("status") or "").upper()
+
+    print("REFERENCE:", reference)
+    print("STATUS:", status)
 
     async with db.begin():
 
         result = await db.execute(
-            select(Withdrawal).where(
-                Withdrawal.reference == reference
+            select(WithdrawalIntent).where(
+                WithdrawalIntent.reference == reference
             )
         )
 
-        withdrawal = result.scalar_one_or_none()
 
+        withdrawal = result.scalar_one_or_none()
+        if withdrawal:
+            print("Withdrawal status:", withdrawal.status)
         if not withdrawal:
+            print("EXIT: NOT FOUND")
             return {
                 "message": "Withdrawal not found"
             }
 
         # Idempotency
+        print("Checking status:", withdrawal.status)
+
         if withdrawal.status in (
             TransactionStatus.COMPLETED,
             TransactionStatus.FAILED,
         ):
-            return {
-                "message": "Already processed"
-            }
-
+            print("EXIT: ALREADY PROCESSED")
+            return {"message": "Already processed"}
+        
+        print("Loading wallet...")
         wallet_result = await db.execute(
             select(Wallet)
             .where(
@@ -567,7 +575,7 @@ async def process_withdrawal(
         tx_result = await db.execute(
             select(Transaction)
             .where(
-                Transaction.id == withdrawal.transaction_id
+                Transaction.reference == reference
             )
         )
 
@@ -575,7 +583,7 @@ async def process_withdrawal(
 
         amount = Decimal(str(withdrawal.amount))
 
-        if status == "succeeded":
+        if status == "SUCCESSFUL":
 
             # Finalize withdrawal
             wallet.balance -= amount
@@ -633,18 +641,19 @@ async def flutterwave_webhook(
 
     event_type = payload.get("type")
     data = payload.get("data", {})
-
+    
     try:
 
-        # Deposit webhook
+        
         if event_type == "charge.completed":
             return await process_deposit(
                 db,
                 data
             )
 
-        # Transfer webhook
-        elif event_type == "transfer.completed":
+        
+        elif event_type == "transfer.disburse":
+            print("process_withdrawal() returned:")
             return await process_withdrawal(
                 db,
                 data

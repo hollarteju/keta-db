@@ -125,10 +125,6 @@ async def initiate_bank_transfer(
 
     url = f"{FLUTTERWAVE_BASE_URL}/direct-transfers"
 
-    reference = reference or f"WTH-{uuid4()}"
-
-    # url = "https://developersandbox-api.flutterwave.com/direct-transfers"
-
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -139,7 +135,7 @@ async def initiate_bank_transfer(
     payload = {
         "action": action,
         "type": "bank",
-        "callback_url": "https://keta-db-05ke.onrender.com/api/v1/webhook/keta",
+        "callback_url": "https://recruiting-essential-kentucky-hebrew.trycloudflare.com/api/v1/webhook/keta",
         "narration": "Wallet Withdrawal",
         "reference": reference,
         "payment_instruction": {
