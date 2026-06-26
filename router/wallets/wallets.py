@@ -575,7 +575,7 @@ async def process_withdrawal(
 
         amount = Decimal(str(withdrawal.amount))
 
-        if status == "SUCCESSFUL":
+        if status == "succeeded":
 
             # Finalize withdrawal
             wallet.balance -= amount
