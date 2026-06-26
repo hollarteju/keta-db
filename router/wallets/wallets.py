@@ -363,6 +363,27 @@ async def transfer_funds(
         db.add(intent)
         await db.flush()
 
+
+        tx = Transaction(
+        id=str(uuid4()),
+        header=TransactionHeader.WALLET_WITHDRAWAL.value,
+        description="Wallet withdrawal",
+        from_user_id=user.id,
+        to_user_id=user.id,
+        type=TransactionType.WITHDRAWAL,
+        status=TransactionStatus.PROCESSING,
+        from_currency=currency,
+        to_currency=currency,
+        from_amount=amount_dec,
+        to_amount=amount_dec,
+        reference=reference,
+    )
+
+        db.add(tx)
+        await db.flush()
+
+        intent.transaction_id = tx.id
+
         try:
             transfer_response = await initiate_bank_transfer(
                 account_number=account_number,
@@ -384,10 +405,6 @@ async def transfer_funds(
                 "pending"
             ]:
 
-               
-
-                wallet.balance -= amount_dec
-                wallet.locked_balance -= amount_dec
 
                 intent.status = TransactionStatus.PROCESSING
 
@@ -504,97 +521,88 @@ async def process_deposit(
 
 
 
+
+
 async def process_withdrawal(
     db,
-    data: dict
+    data: dict,
 ):
-    print(f"WITHDRAW DATA PROCESS:....: {data}")
     reference = data.get("reference")
-    status = data.get("status")
+    status = (data.get("status") or "").upper()
 
     async with db.begin():
 
         result = await db.execute(
-            select(Withdrawal)
-            .where(
-                Withdrawal.reference==reference
+            select(Withdrawal).where(
+                Withdrawal.reference == reference
             )
         )
 
-        withdrawal = (
-            result.scalar_one_or_none()
-        )
+        withdrawal = result.scalar_one_or_none()
 
         if not withdrawal:
             return {
-                "message":
-                "withdrawal not found"
+                "message": "Withdrawal not found"
             }
 
-        if withdrawal.status in [
+        # Idempotency
+        if withdrawal.status in (
             TransactionStatus.COMPLETED,
-            TransactionStatus.FAILED
-        ]:
+            TransactionStatus.FAILED,
+        ):
             return {
-                "message":
-                "already processed"
+                "message": "Already processed"
             }
 
         wallet_result = await db.execute(
             select(Wallet)
             .where(
-                Wallet.id==
-                withdrawal.wallet_id
+                Wallet.id == withdrawal.wallet_id
             )
             .with_for_update()
         )
 
         wallet = wallet_result.scalar_one()
 
-        amount = Decimal(
-            str(withdrawal.amount)
-        )
-
-        if status == "succeeded":
-
-            wallet.locked_balance -= amount
-
-            withdrawal.status = (
-                TransactionStatus.COMPLETED
-            )
-
-            tx_status = (
-                TransactionStatus.COMPLETED
-            )
-
-        else:
-
-            # unlock money
-            wallet.locked_balance -= amount
-
-            withdrawal.status = (
-                TransactionStatus.FAILED
-            )
-
-            tx_status = (
-                TransactionStatus.FAILED
-            )
-
         tx_result = await db.execute(
             select(Transaction)
             .where(
-                Transaction.id==
-                withdrawal.transaction_id
+                Transaction.id == withdrawal.transaction_id
             )
         )
 
         tx = tx_result.scalar_one()
 
-        tx.status = tx_status
+        amount = Decimal(str(withdrawal.amount))
+
+        if status == "SUCCESSFUL":
+
+            # Finalize withdrawal
+            wallet.balance -= amount
+            wallet.locked_balance -= amount
+
+            withdrawal.status = TransactionStatus.COMPLETED
+            tx.status = TransactionStatus.COMPLETED
+
+        elif status in (
+            "FAILED",
+            "REVERSED",
+            "CANCELLED",
+        ):
+
+            # Release locked funds
+            wallet.locked_balance -= amount
+
+            withdrawal.status = TransactionStatus.FAILED
+            tx.status = TransactionStatus.FAILED
+
+        else:
+            return {
+                "message": f"Ignoring webhook status: {status}"
+            }
 
     return {
-        "message":
-        "withdrawal processed"
+        "message": "Withdrawal processed"
     }
 
 
