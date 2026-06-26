@@ -508,7 +508,6 @@ async def process_withdrawal(
     db,
     data: dict
 ):
-
     print(f"WITHDRAW DATA PROCESS:....: {data}")
     reference = data.get("reference")
     status = data.get("status")
@@ -568,10 +567,6 @@ async def process_withdrawal(
                 TransactionStatus.COMPLETED
             )
 
-            print(
-                "withdraw successful"
-            )
-
         else:
 
             # unlock money
@@ -583,10 +578,6 @@ async def process_withdrawal(
 
             tx_status = (
                 TransactionStatus.FAILED
-            )
-
-            print(
-                "withdraw failed"
             )
 
         tx_result = await db.execute(

@@ -139,7 +139,7 @@ async def initiate_bank_transfer(
     payload = {
         "action": action,
         "type": "bank",
-        "callback_url": "https://grounds-gcc-steel-coat.trycloudflare.com/api/v1/webhook/keta",
+        "callback_url": "https://keta-db-05ke.onrender.com/api/v1/webhook/keta",
         "narration": "Wallet Withdrawal",
         "reference": reference,
         "payment_instruction": {
@@ -251,7 +251,7 @@ async def create_customer(email, first_name, last_name, country_code, phone_numb
 
         raise
 
-    
+
 
 async def get_customer_by_email(email: str):
     result = await request_header(
