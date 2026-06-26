@@ -366,7 +366,7 @@ async def transfer_funds(
 
         tx = Transaction(
         id=str(uuid4()),
-        header=TransactionHeader.WALLET_WITHDRAWAL.value,
+        header=TransactionHeader.WALLET_WITHDRAW.value,
         description="Wallet withdrawal",
         from_user_id=user.id,
         to_user_id=user.id,
