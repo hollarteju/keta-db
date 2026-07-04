@@ -1,6 +1,6 @@
 import os
 from uuid import uuid4
-from fastapi import APIRouter, Depends, HTTPException, Request, status, Header
+from fastapi import APIRouter, Depends, HTTPException, Request, status, WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import IntegrityError
 from database import get_db
@@ -15,6 +15,7 @@ from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_tran
 from typing import Optional
 from utils.email_config import send_email
 import logging
+from utils.websocket_manager import manager
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -179,6 +180,9 @@ async def get_user_wallets(
         )
 
     return responses
+
+
+
 
 
 @router.get("/deposit-intents/me")
@@ -512,6 +516,16 @@ async def process_deposit(
 
     await db.commit()
 
+    await manager.send_to_user(
+    deposit.user_id,
+    {
+        "type": "deposit",
+        "status": "completed",
+        "reference": deposit.reference,
+        "amount": float(deposit.amount),
+        "currency": deposit.currency,
+    },
+)
     return {
         "status": "success",
         "message": "wallet credited"
@@ -525,13 +539,9 @@ async def process_withdrawal(
     db,
     data: dict,
 ):
-    print("WEBHOOK BODY:", data)
 
     reference = data.get("reference")
     status = (data.get("status") or "").upper()
-
-    print("REFERENCE:", reference)
-    print("STATUS:", status)
 
     async with db.begin():
 
@@ -543,25 +553,19 @@ async def process_withdrawal(
 
 
         withdrawal = result.scalar_one_or_none()
-        if withdrawal:
-            print("Withdrawal status:", withdrawal.status)
         if not withdrawal:
-            print("EXIT: NOT FOUND")
             return {
                 "message": "Withdrawal not found"
             }
 
-        # Idempotency
-        print("Checking status:", withdrawal.status)
 
         if withdrawal.status in (
             TransactionStatus.COMPLETED,
             TransactionStatus.FAILED,
         ):
-            print("EXIT: ALREADY PROCESSED")
             return {"message": "Already processed"}
         
-        print("Loading wallet...")
+      
         wallet_result = await db.execute(
             select(Wallet)
             .where(
@@ -592,26 +596,49 @@ async def process_withdrawal(
             withdrawal.status = TransactionStatus.COMPLETED
             tx.status = TransactionStatus.COMPLETED
 
+            await manager.send_to_user(
+                withdrawal.user_id,
+                {
+                    "event": "withdrawal.completed",
+                    "reference": withdrawal.reference,
+                    "status": "COMPLETED",
+                    "amount": float(amount),
+                    "currency": withdrawal.currency,
+                },
+            )
+
         elif status in (
             "FAILED",
             "REVERSED",
             "CANCELLED",
         ):
 
-            # Release locked funds
+           
             wallet.locked_balance -= amount
 
             withdrawal.status = TransactionStatus.FAILED
             tx.status = TransactionStatus.FAILED
 
+            await manager.send_to_user(
+                withdrawal.user_id,
+                {
+                    "event": "withdrawal.failed",
+                    "reference": withdrawal.reference,
+                    "status": "FAILED",
+                    "amount": float(amount),
+                    "currency": withdrawal.currency,
+                },
+            )
+
         else:
+
             return {
                 "message": f"Ignoring webhook status: {status}"
             }
 
-    return {
-        "message": "Withdrawal processed"
-    }
+        return {
+            "message": "Withdrawal processed"
+        }
 
 
 
@@ -653,7 +680,6 @@ async def flutterwave_webhook(
 
         
         elif event_type == "transfer.disburse":
-            print("process_withdrawal() returned:")
             return await process_withdrawal(
                 db,
                 data

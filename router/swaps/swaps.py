@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query,  WebSocket, WebSocketDisconnect
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 from decimal import Decimal
@@ -12,10 +12,34 @@ from utils.rates import fetch_currency_rates
 from uuid import uuid4
 from datetime import datetime
 from sqlalchemy.orm import selectinload
+from utils.websocket_manager import manager
 
 
 router = APIRouter(prefix="/swaps", tags=["Swaps"])
 
+
+@router.websocket("/ws/market/{pair}")
+async def market_socket(
+    websocket: WebSocket,
+    pair: str,
+):
+
+    await manager.connect_market(
+        pair,
+        websocket,
+    )
+
+    try:
+
+        while True:
+            await websocket.receive_text()
+
+    except WebSocketDisconnect:
+
+        manager.disconnect_market(
+            pair,
+            websocket,
+        )
 
 @router.post("/")
 async def create_swap(data: SwapCreate, db: AsyncSession = Depends(get_db)):
@@ -49,6 +73,17 @@ async def create_swap(data: SwapCreate, db: AsyncSession = Depends(get_db)):
     db.add(swap)
     await db.commit()
     await db.refresh(swap)
+
+    await manager.broadcast_market(
+    f"{from_currency}_{to_currency}",
+    {
+        "type": "price",
+        "pair": "USD_NGN",
+        "buy": 1620.45,
+        "sell": 1625.12,
+        "timestamp": "2026-06-27T12:30:00Z",
+    },
+    )
 
     return swap
 
@@ -167,7 +202,6 @@ async def initiate_swap_purchase(
     user_id: str = Query(..., description="Buyer user ID (from auth token)"),
     db: AsyncSession = Depends(get_db)
 ):
-    # 1️⃣ Get the swap
     result = await db.execute(select(Swap).where(Swap.id == swap_id))
     swap: Swap = result.scalar_one_or_none()
     if not swap or swap.status in ["filled", "cancelled"]:
@@ -175,7 +209,6 @@ async def initiate_swap_purchase(
 
     if not swap.validate_order_amount(amount):
         raise HTTPException(status_code=401, detail="Invalid trade amount")
-    # 2️⃣ Get buyer wallet (in the currency they pay with)
     result = await db.execute(
         select(Wallet).where(Wallet.user_id == user_id, Wallet.currency == pay_currency.value)
     )
@@ -183,10 +216,6 @@ async def initiate_swap_purchase(
     if not buyer_wallet:
         raise HTTPException(status_code=400, detail=f"Buyer wallet not found for {pay_currency.value}")
 
-    # 3️⃣ Calculate total cost based on swap rate
-    # Assuming swap.rate = units of pay_currency per 1 unit of swap.from_currency
-    
-    # 4️⃣ Lock funds from buyer wallet
     try:
         await Wallet.lock_balance(db, buyer_wallet.id, amount)
     except InsufficientFundsError:

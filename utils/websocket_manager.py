@@ -1,69 +1,143 @@
-from typing import Dict, List
+from collections import defaultdict
+from typing import Dict, Set
+
 from fastapi import WebSocket
 
+
 class ConnectionManager:
-    """
-    Handles real-time location rooms per company.
-    Each company room has staff and admin connections.
-    Staff send location updates.
-    Admins receive those updates in real-time or via commands.
-    """
-
+   
     def __init__(self):
-        # { company_id: { "staff": {staff_id: websocket}, "admins": [websocket], "locations": {staff_id: location_data} } }
-        self.rooms: Dict[str, Dict] = {}
 
-    async def connect_staff(self, company_id: str, staff_id: str, websocket: WebSocket):
+        # user_id -> websocket set
+        self.user_channels: Dict[str, Set[WebSocket]] = defaultdict(set)
+
+        # market -> websocket set
+        self.market_channels: Dict[str, Set[WebSocket]] = defaultdict(set)
+
+    ####################################################
+    #
+    # USER CHANNELS
+    #
+    ####################################################
+
+    async def connect_user(
+        self,
+        user_id: str,
+        websocket: WebSocket,
+    ):
         await websocket.accept()
-        if company_id not in self.rooms:
-            self.rooms[company_id] = {"staff": {}, "admins": [], "locations": {}}
-        self.rooms[company_id]["staff"][staff_id] = websocket
-        print(f"✅ Staff {staff_id} connected to company {company_id}")
 
-    def disconnect_staff(self, company_id: str, staff_id: str):
-        if company_id in self.rooms and staff_id in self.rooms[company_id]["staff"]:
-            del self.rooms[company_id]["staff"][staff_id]
-            self.rooms[company_id]["locations"].pop(staff_id, None)
-            print(f"❌ Staff {staff_id} disconnected from {company_id}")
+        self.user_channels[user_id].add(websocket)
 
-    async def connect_admin(self, company_id: str, websocket: WebSocket):
+        print(
+            f"✅ User connected: {user_id}"
+        )
+
+    def disconnect_user(
+        self,
+        user_id: str,
+        websocket: WebSocket,
+    ):
+
+        if user_id not in self.user_channels:
+            return
+
+        self.user_channels[user_id].discard(websocket)
+
+        if not self.user_channels[user_id]:
+            del self.user_channels[user_id]
+
+        print(
+            f"❌ User disconnected: {user_id}"
+        )
+
+    async def send_to_user(
+        self,
+        user_id: str,
+        payload: dict,
+    ):
+
+        if user_id not in self.user_channels:
+            return
+
+        dead_connections = []
+
+        for ws in self.user_channels[user_id]:
+
+            try:
+                await ws.send_json(payload)
+
+            except Exception:
+                dead_connections.append(ws)
+
+        for ws in dead_connections:
+            self.disconnect_user(
+                user_id,
+                ws,
+            )
+
+    ####################################################
+    #
+    # MARKET CHANNELS
+    #
+    ####################################################
+
+    async def connect_market(
+        self,
+        market: str,
+        websocket: WebSocket,
+    ):
+
         await websocket.accept()
-        if company_id not in self.rooms:
-            self.rooms[company_id] = {"staff": {}, "admins": [], "locations": {}}
-        self.rooms[company_id]["admins"].append(websocket)
-        print(f"👑 Admin joined company {company_id}")
 
-    def disconnect_admin(self, company_id: str, websocket: WebSocket):
-        if company_id in self.rooms and websocket in self.rooms[company_id]["admins"]:
-            self.rooms[company_id]["admins"].remove(websocket)
-            print(f"❌ Admin left company {company_id}")
+        self.market_channels[market].add(websocket)
 
-    async def update_location(self, company_id: str, staff_id: str, data: dict):
-        """
-        Update staff location in memory and notify all admins.
-        """
-        if company_id in self.rooms:
-            self.rooms[company_id]["locations"][staff_id] = data
-            for admin_ws in self.rooms[company_id]["admins"]:
-                await admin_ws.send_json({
-                    "staff_id": staff_id,
-                    "location": data
-                })
+        print(
+            f"📈 Connected to market {market}"
+        )
 
-    def get_staff_location(self, company_id: str, staff_id: str):
-        """
-        Returns the latest known location for a staff (if any).
-        """
-        room = self.rooms.get(company_id)
-        if not room:
-            return None
-        return room["locations"].get(staff_id)
+    def disconnect_market(
+        self,
+        market: str,
+        websocket: WebSocket,
+    ):
 
-    def get_all_staff_locations(self, company_id: str):
-        """
-        Returns all staff locations for a company.
-        """
-        room = self.rooms.get(company_id)
-        if not room:
-            return {}
-        return room["locations"]
+        if market not in self.market_channels:
+            return
+
+        self.market_channels[market].discard(websocket)
+
+        if not self.market_channels[market]:
+            del self.market_channels[market]
+
+        print(
+            f"📉 Left market {market}"
+        )
+
+    async def broadcast_market(
+        self,
+        market: str,
+        payload: dict,
+    ):
+
+        if market not in self.market_channels:
+            return
+
+        dead_connections = []
+
+        for ws in self.market_channels[market]:
+
+            try:
+                await ws.send_json(payload)
+
+            except Exception:
+                dead_connections.append(ws)
+
+        for ws in dead_connections:
+            self.disconnect_market(
+                market,
+                ws,
+            )
+
+
+manager = ConnectionManager()

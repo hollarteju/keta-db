@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from router.websocket_connection import router as websocket_router
+
 # from router.tasks import upload_task, get_user_tasks, get_all_tasks, get_task, get_pick_tasks, submit_task, get_submit_tasks
 # from router.settings import profile_picture
 from dotenv import load_dotenv
@@ -40,7 +42,7 @@ app.include_router(rate.router)
 app.include_router(swaps.router)
 # app.include_router(tasks.router)
 # app.include_router(places.router)
-# app.include_router(websocket_router)
+app.include_router(websocket_router)
 # app.include_router(submit_task.router)
 # app.include_router(get_submit_tasks.router)
 # app.include_router(profile_picture.router)

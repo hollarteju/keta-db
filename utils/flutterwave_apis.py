@@ -262,6 +262,8 @@ async def get_customer_by_email(email: str):
 
     return None
 
+
+
 async def create_virtual_account(
     amount: float,
     currency: str,
@@ -291,6 +293,8 @@ async def create_virtual_account(
     )
 
     return response
+
+
 
 async def charge_ussd(amount, currency, customer, ussd):
     payload = {
