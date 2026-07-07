@@ -12,7 +12,7 @@ class ConnectionManager:
         self.user_channels: Dict[str, Set[WebSocket]] = defaultdict(set)
 
         # market -> websocket set
-        self.market_channels: Dict[str, Set[WebSocket]] = defaultdict(set)
+        self.market_channels: Set[WebSocket] = set()
 
     ####################################################
     #
@@ -84,60 +84,61 @@ class ConnectionManager:
 
     async def connect_market(
         self,
-        market: str,
         websocket: WebSocket,
     ):
 
         await websocket.accept()
 
-        self.market_channels[market].add(websocket)
+        self.market_channels.add(websocket)
 
         print(
-            f"📈 Connected to market {market}"
-        )
+        f"📈 Market connected | "
+        f"id={id(websocket)} | "
+        f"client={websocket.client} | "
+        f"total={len(self.market_channels)}"
+    )
 
     def disconnect_market(
         self,
-        market: str,
         websocket: WebSocket,
     ):
 
-        if market not in self.market_channels:
-            return
 
-        self.market_channels[market].discard(websocket)
+        self.market_channels.discard(websocket)
 
-        if not self.market_channels[market]:
-            del self.market_channels[market]
-
+      
         print(
-            f"📉 Left market {market}"
+            f"📉 Left market"
         )
+
+
 
     async def broadcast_market(
         self,
-        market: str,
         payload: dict,
     ):
 
-        if market not in self.market_channels:
-            return
-
         dead_connections = []
 
-        for ws in self.market_channels[market]:
+        for ws in self.market_channels:
+            print(
+            f"➡ Sending to "
+            f"id={id(ws)} | "
+            f"client={ws.client}"
+        )
+
 
             try:
                 await ws.send_json(payload)
 
-            except Exception:
+                print("✅ Sent successfully", payload)
+
+            except Exception as e:
+                print(f"❌ Send failed: {e}")
                 dead_connections.append(ws)
 
         for ws in dead_connections:
-            self.disconnect_market(
-                market,
-                ws,
-            )
+            self.disconnect_market(ws)
 
 
 manager = ConnectionManager()

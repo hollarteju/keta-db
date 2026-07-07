@@ -19,6 +19,8 @@ async def user_socket(
         websocket=websocket,
     )
 
+    
+
     try:
         while True:
             # Keep socket alive
@@ -33,25 +35,14 @@ async def user_socket(
 
 
 
-@router.websocket("/ws/market/{pair}")
-async def market_socket(
-    websocket: WebSocket,
-    pair: str,
-):
+@router.websocket("/ws/market")
+async def market_socket(websocket: WebSocket):
 
-    await manager.connect_market(
-        pair,
-        websocket
-    )
+    await manager.connect_market(websocket)
 
     try:
-
         while True:
             await websocket.receive_text()
 
     except WebSocketDisconnect:
-
-        manager.disconnect_market(
-            pair,
-            websocket
-        )
+        manager.disconnect_market(websocket)

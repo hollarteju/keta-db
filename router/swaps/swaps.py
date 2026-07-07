@@ -15,31 +15,34 @@ from sqlalchemy.orm import selectinload
 from utils.websocket_manager import manager
 
 
+def serialize_swap(swap: Swap) -> dict:
+    return {
+        "id": str(swap.id),
+        "creator_id": str(swap.creator_id),
+        "from_currency": swap.from_currency,
+        "to_currency": swap.to_currency,
+        "amount": float(swap.amount),
+        "remaining_amount": float(swap.remaining_amount),
+        "min_amount": float(swap.min_amount),
+        "rate": float(swap.rate),
+        "status": swap.status.value,
+        "expires_at": (
+            swap.expires_at.isoformat()
+            if swap.expires_at
+            else None
+        ),
+        "created_at": (
+            swap.created_at.isoformat()
+            if swap.created_at
+            else None
+        )
+    }
+
+
+
 router = APIRouter(prefix="/swaps", tags=["Swaps"])
 
 
-@router.websocket("/ws/market/{pair}")
-async def market_socket(
-    websocket: WebSocket,
-    pair: str,
-):
-
-    await manager.connect_market(
-        pair,
-        websocket,
-    )
-
-    try:
-
-        while True:
-            await websocket.receive_text()
-
-    except WebSocketDisconnect:
-
-        manager.disconnect_market(
-            pair,
-            websocket,
-        )
 
 @router.post("/")
 async def create_swap(data: SwapCreate, db: AsyncSession = Depends(get_db)):
@@ -74,16 +77,10 @@ async def create_swap(data: SwapCreate, db: AsyncSession = Depends(get_db)):
     await db.commit()
     await db.refresh(swap)
 
-    await manager.broadcast_market(
-    f"{from_currency}_{to_currency}",
-    {
-        "type": "price",
-        "pair": "USD_NGN",
-        "buy": 1620.45,
-        "sell": 1625.12,
-        "timestamp": "2026-06-27T12:30:00Z",
-    },
-    )
+    await manager.broadcast_market({
+    "event": "swap_created",
+    "swap": serialize_swap(swap)
+    })
 
     return swap
 
@@ -163,6 +160,13 @@ async def update_swap(
     await db.commit()
     await db.refresh(swap)
 
+    await manager.broadcast_market(
+    {
+        "event": "swap_updated",
+        "swap": serialize_swap(swap),
+    }
+)
+
     return swap
 
 
@@ -189,6 +193,13 @@ async def cancel_swap(swap_id: str, db: AsyncSession = Depends(get_db)):
 
     db.add(swap)
     await db.commit()
+
+    await manager.broadcast_market(
+    {
+        "event": "swap_deleted",
+        "swap": serialize_swap(swap),
+    }
+)
 
     return {"message": "Swap cancelled"}
 
@@ -228,6 +239,8 @@ async def initiate_swap_purchase(
         "pay_currency": pay_currency.value,
         "locked_amount": amount
     }
+
+
 
 # 2️⃣ Confirm Swap Purchase (after payment confirmation)
 @router.post("/buy/confirm/{swap_id}")
@@ -307,5 +320,18 @@ async def confirm_swap_purchase(
 
     await db.commit()
     await db.refresh(swap)
+
+    {
+    "event": "swap_completed",
+    "swap": {
+        "id": str(swap.id),
+        "remaining_amount": float(swap.remaining_amount),
+        "from_currency": swap.from_currency,
+        "to_currency": swap.to_currency,
+        "created_at": swap.created_at.isoformat() if swap.created_at else None,
+        "buyer_name": f"{swap.creator.first_name} {swap.creator.last_name}"
+
+    }
+}
 
     return {"message": "Swap purchase confirmed", "swap": swap, "execution": execution}
