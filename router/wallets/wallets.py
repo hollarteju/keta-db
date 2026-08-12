@@ -9,9 +9,9 @@ from decimal import Decimal
 from sqlalchemy import func, case, select
 import json
 from models import Wallet, User, WalletType, Withdrawal, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
-from schemas import WalletResponse, DepositRequest
+from schemas import WalletResponse, DepositRequest, CardPinRequest
 from dotenv import load_dotenv
-from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, charge_ussd, create_virtual_account, charge_mobile_money
+from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money
 from typing import Optional
 from utils.email_config import send_email
 import logging
@@ -258,8 +258,8 @@ async def deposit(
                 response = await charge_card(
                     amount=payload.amount,
                     currency=payload.currency,
+                    customer=user,
                     card=payload.card,
-                    email=user.email,
                     reference=reference
                 )
 
@@ -302,6 +302,9 @@ async def deposit(
         await db.commit()
 
         raise
+
+
+
 
 
 @router.post("/transfer")
@@ -463,6 +466,33 @@ async def transfer_funds(
         )
 
 
+
+@router.post("/card_pin")
+async def authorize_charge(
+    payload: CardPinRequest,
+    user: User = Depends(get_current_user),
+):
+    # pmd_r8tWvRcD9u
+    try:
+        response = await authorize_charge_pin(
+            charge_id=payload.charge_id,
+            pin=payload.pin,
+        )
+
+        return {
+            "success": True,
+            "message": "PIN submitted successfully",
+            "data": response,
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e),
+        )
+
+
+        
 
 async def process_deposit(
     db: AsyncSession,

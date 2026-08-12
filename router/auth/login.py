@@ -310,6 +310,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
         "last_name": user.last_name,
         "phone_number": user.phone_number,
         "address": user.address,
+        "country_code": user.country_code,
         "country": user.country,
         "verified_email": user.verified_email,
         "subscription": user.subscription,
@@ -361,6 +362,31 @@ async def update_me(
 
     if payload.country_code is not None:
         user.country_code = payload.country_code
+
+    # if payload.usd_locked_balance is not None:
+    #     usd_wallet = await db.scalar(
+    #         select(Wallet).where(
+    #             Wallet.user_id == user.id,
+    #             Wallet.currency == "USD",
+    #         )
+    #     )
+
+    #     if usd_wallet:
+    #         usd_wallet.locked_balance = payload.usd_locked_balance
+
+    # # Update NGN locked balance
+    # if payload.ngn_locked_balance is not None:
+    #     ngn_wallet = await db.scalar(
+    #         select(Wallet).where(
+    #             Wallet.user_id == user.id,
+    #             Wallet.currency == "NGN",
+    #         )
+    #     )
+
+    #     if ngn_wallet:
+    #         ngn_wallet.locked_balance = payload.ngn_locked_balance
+
+    
 
     # Save changes
     db.add(user)

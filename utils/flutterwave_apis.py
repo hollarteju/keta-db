@@ -3,15 +3,47 @@ from dotenv import load_dotenv
 import os
 import httpx
 from uuid import uuid4
-# from core.encryption import encrypt_field
-from schemas import DepositRequest
+from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+import base64
+import secrets
+import string
+import json
+
 
 load_dotenv()
 FLUTTERWAVE_BASE_URL = 'https://f4bexperience.flutterwave.com'
 # FLUTTERWAVE_BASE_URL = "https://developersandbox-api.flutterwave.com"
 FLUTTERWAVE_AUTH = "https://idp.flutterwave.com/realms/flutterwave/protocol/openid-connect/token"
+FLW_ENCRYPTION_KEY=os.getenv("FLW_ENCRYPTION_KEY")
 
 
+class FlutterwaveEncryptor:
+
+    def __init__(self, encryption_key: str):
+        # Flutterwave encryption key is Base64 encoded
+        self.key = base64.b64decode(encryption_key)
+
+    @staticmethod
+    def generate_nonce(length=12):
+        alphabet = string.ascii_letters + string.digits
+        return "".join(secrets.choice(alphabet) for _ in range(length))
+
+    def encrypt(self, plaintext: str, nonce: str):
+        aesgcm = AESGCM(self.key)
+
+        ciphertext = aesgcm.encrypt(
+            nonce.encode(),
+            plaintext.encode(),
+            None
+        )
+
+        return base64.b64encode(ciphertext).decode()
+
+
+def generate_nonce(length=12):
+    alphabet = string.ascii_letters + string.digits
+    return "".join(secrets.choice(alphabet) for _ in range(length))
+    
 def get_flutterwave_token():
     url = FLUTTERWAVE_AUTH
     headers = {
@@ -69,6 +101,33 @@ async def request_header(method: str, path: str, payload: dict = None):
         response.raise_for_status()
         return response.json()
         
+
+async def create_customer(email, first_name, last_name, country_code, phone_number):
+    payload = {
+        "email": email,
+        "name": {
+            "first": first_name,
+            "last": last_name
+        },
+        "phone": {
+            "country_code": country_code,   # Nigeria — change per country
+            "number": phone_number
+        }
+    }
+
+    try:
+            result = await request_header("post", "/customers", payload)
+            return result["data"]["id"]
+
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            existing_id = await get_customer_by_email(email)
+
+            if existing_id:
+                return existing_id
+
+        raise
+
 
 async def get_banks(country: str = "NG"):
     async with httpx.AsyncClient() as client:
@@ -165,34 +224,105 @@ async def initiate_bank_transfer(
 
 
 
-async def charge_card(amount, currency, customer, card, reference):
-    nonce = str(uuid4())
+async def create_charge(
+    amount: float,
+    currency: str,
+    reference: str,
+    customer_id: str,
+    payment_method_id: str,
+    redirect_url: str,
+    meta: dict | None = None,
+):
     payload = {
-        "amount": amount,
-        "currency": currency,
         "reference": reference,
-        "payment_method": {
-            "type": "card",
-            "card": {
-                "encrypted_card_number": card.card_number,
-                "encrypted_expiry_month": card.expiry_month,
-                "encrypted_expiry_year": card.expiry_year,
-                "encrypted_cvv": card.cvv,
-                "nonce": nonce,
-            },
-        },
-        "customer": {
-            "email": customer.email,
-            "name": {"first": customer.first_name, "last": customer.last_name},
-        },
+        "currency": currency,
+        "customer_id": customer_id,
+        "payment_method_id": payment_method_id,
+        "redirect_url": redirect_url,
+        "amount": amount,
+        "meta": meta or {},
     }
-    result = await request_header("post", "/orchestration/direct-charges", payload)
 
-    return {
-        "charge_id": result["data"]["id"],
-        "next_action": result["data"].get("next_action"),
-        "method": "card",
+    print("Charge Payload:")
+    print(json.dumps(payload, indent=2))
+
+    response = await request_header(
+        "post",
+        "/charges",
+        payload,
+    )
+
+    return response
+
+
+async def charge_card(amount, currency, customer, card, reference):
+    customer_id = await create_customer(customer.email, customer.first_name, customer.last_name, customer.country_code, customer.phone_number)
+    encryptor = FlutterwaveEncryptor(FLW_ENCRYPTION_KEY)
+
+    nonce = generate_nonce()
+
+    payment_method_payload = {
+        "type": "card",
+        "card": {
+            "encrypted_card_number": encryptor.encrypt(card.card_number, nonce),
+            "encrypted_expiry_month": encryptor.encrypt(card.expiry_month, nonce),
+            "encrypted_expiry_year": encryptor.encrypt(card.expiry_year, nonce),
+            "encrypted_cvv": encryptor.encrypt(card.cvv, nonce),
+            "nonce": nonce,
+        },
     }
+
+    result = await request_header(
+        "post",
+        "/payment-methods",
+        payment_method_payload,
+    )
+
+    payment_method_id = result["data"]["id"]
+
+    charge = await create_charge(
+    amount=amount,
+    currency=currency,
+    reference=reference,
+    customer_id=customer_id,   # Flutterwave customer ID
+    payment_method_id=payment_method_id,
+    redirect_url="https://yourdomain.com/flutterwave/callback",
+   
+)
+
+    return charge
+
+
+
+async def authorize_charge_pin(
+    charge_id,
+    pin,
+):
+    encryptor = FlutterwaveEncryptor(FLW_ENCRYPTION_KEY)
+
+    nonce = generate_nonce()
+
+    payload = {
+        "authorization": {
+            "type": "pin",
+            "pin": {
+                "nonce": nonce,
+                "encrypted_pin": encryptor.encrypt(pin, nonce),
+            },
+        }
+    }
+
+    print(json.dumps(payload, indent=2))
+
+    response = await request_header(
+        "put",
+        f"/charges/{charge_id}",
+        payload,
+    )
+
+    return response
+
+
 
 
 async def charge_mobile_money(amount, currency, customer, mobile_money):
@@ -219,33 +349,6 @@ async def charge_mobile_money(amount, currency, customer, mobile_money):
         "next_action": result["data"].get("next_action"),  # payment_instruction — show "check your phone"
         "method": "mobile_money",
     }
-
-
-async def create_customer(email, first_name, last_name, country_code, phone_number):
-    payload = {
-        "email": email,
-        "name": {
-            "first": first_name,
-            "last": last_name
-        },
-        "phone": {
-            "country_code": country_code,   # Nigeria — change per country
-            "number": phone_number
-        }
-    }
-
-    try:
-            result = await request_header("post", "/customers", payload)
-            return result["data"]["id"]
-
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 409:
-            existing_id = await get_customer_by_email(email)
-
-            if existing_id:
-                return existing_id
-
-        raise
 
 
 

@@ -87,6 +87,8 @@ class UserUpdate(BaseModel):
     country_code: Optional[str] = None
     address: Optional[str] = None
     country: Optional[str] = None
+    # usd_locked_balance: Decimal | None = None
+    # ngn_locked_balance: Decimal | None = None
 
     class Config:
         orm_mode = True
@@ -651,3 +653,8 @@ class DepositIntentOut(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class CardPinRequest(BaseModel):
+    charge_id: str
+    pin: str
