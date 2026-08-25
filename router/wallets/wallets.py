@@ -293,7 +293,7 @@ async def deposit(
                     "unsupported deposit method"
                 )
 
-    except Exception:
+    except Exception as e:
 
         # payment setup failed
         intent.status = TransactionStatus.FAILED
@@ -301,7 +301,7 @@ async def deposit(
         db.add(intent)
         await db.commit()
 
-        raise
+        raise HTTPException( status_code=500, detail=f"Deposit failed: {str(e)}" )
 
 
 
