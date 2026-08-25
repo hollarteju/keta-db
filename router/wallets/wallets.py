@@ -230,27 +230,27 @@ async def deposit(
 
     reference = f"DEP-{uuid4()}"
 
-    intent = DepositIntent(
-        id=str(uuid4()),
-        user_id=user.id,
-        wallet_id=wallet.id,
-        amount=payload.amount,
-        currency=payload.currency,
-        method=payload.method,
-        reference= reference,
-        status=TransactionStatus.PENDING
-    )
+    # intent = DepositIntent(
+    #     id=str(uuid4()),
+    #     user_id=user.id,
+    #     wallet_id=wallet.id,
+    #     amount=payload.amount,
+    #     currency=payload.currency,
+    #     method=payload.method,
+    #     reference= reference,
+    #     status=TransactionStatus.PENDING
+    # )
     count += 1
 
-    db.add(intent)
-    await db.commit()
+    # db.add(intent)
+    # await db.commit()
     
     try:
 
         match payload.method:
 
             case "card":
-
+                count += 1
                 if not payload.card:
                     raise HTTPException(
                         400,
@@ -264,6 +264,7 @@ async def deposit(
                     card=payload.card,
                     reference=reference
                 )
+                count += 1
 
                 return {
                     "method": "card",
