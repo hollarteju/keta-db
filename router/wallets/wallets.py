@@ -299,10 +299,10 @@ async def deposit(
     except Exception as e:
 
         # payment setup failed
-        intent.status = TransactionStatus.FAILED
+        # intent.status = TransactionStatus.FAILED
 
-        db.add(intent)
-        await db.commit()
+        # db.add(intent)
+        # await db.commit()
 
         raise HTTPException( status_code=500, detail=f"Deposit failed: {count} {str(e)}" )
 
