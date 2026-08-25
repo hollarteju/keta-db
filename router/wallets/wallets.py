@@ -219,6 +219,7 @@ async def deposit(
         )
     )
 
+    count = 0
     wallet = wallet_result.scalar_one_or_none()
 
     if not wallet:
@@ -239,10 +240,11 @@ async def deposit(
         reference= reference,
         status=TransactionStatus.PENDING
     )
+    count += 1
 
     db.add(intent)
     await db.commit()
-
+    
     try:
 
         match payload.method:
@@ -301,7 +303,7 @@ async def deposit(
         db.add(intent)
         await db.commit()
 
-        raise HTTPException( status_code=500, detail=f"Deposit failed: {str(e)}" )
+        raise HTTPException( status_code=500, detail=f"Deposit failed: {count} {str(e)}" )
 
 
 
