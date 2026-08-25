@@ -595,6 +595,8 @@ class SwapUpdate(BaseModel):
     rate: Decimal | None = None
     expires_at: datetime | None = None
 
+class BuyerBidUpdate(BaseModel):
+    bid_rate: Decimal = Field(..., gt=0)
 
 class SwapResponse(BaseModel):
     id: str

@@ -501,6 +501,7 @@ async def process_deposit(
     reference = data.get("reference")
     amount = Decimal(str(data.get("amount", 0)))
     currency = data.get("currency")
+    status = (data.get("status") or "").upper()
 
     result = await db.execute(
         select(DepositIntent)
@@ -515,52 +516,109 @@ async def process_deposit(
     if intent.status == TransactionStatus.COMPLETED:
         return {"message": "already processed"}
 
-    intent.status = TransactionStatus.COMPLETED
-    intent.flutterwave_response = data
+    # --------------------------------------------------
+    # SUCCESSFUL
+    # --------------------------------------------------
 
-    tx = Transaction(
-        id=str(uuid4()),
-        header=TransactionHeader.WALLET_FUND.value,
-        description="Wallet funding via Flutterwave",
-        from_user_id=intent.user_id,
-        to_user_id=intent.user_id,
-        type=TransactionType.DEPOSIT,
-        status=TransactionStatus.COMPLETED,
-        from_currency=currency,
-        to_currency=currency,
-        from_amount=amount,
-        to_amount=amount,
-        reference=reference
-    )
+    if status == "SUCCESSFUL":
 
-    db.add(tx)
+        try:
+            intent.status = TransactionStatus.COMPLETED
+            intent.flutterwave_response = data
 
-    await db.flush()
+            tx_id = str(uuid4())
 
-    await Wallet.credit_wallet(
-        db=db,
-        wallet_id=intent.wallet_id,
-        amount=amount,
-        tx_id=tx.id
-    )
+            tx = Transaction(
+                id=tx_id,
+                header=TransactionHeader.WALLET_FUND.value,
+                description="Wallet funding via Flutterwave",
+                from_user_id=intent.user_id,
+                to_user_id=intent.user_id,
+                type=TransactionType.DEPOSIT,
+                status=TransactionStatus.COMPLETED,
+                from_currency=currency,
+                to_currency=currency,
+                from_amount=amount,
+                to_amount=amount,
+                reference=reference
+            )
 
-    await db.commit()
+            db.add(tx)
 
-    await manager.send_to_user(
-    deposit.user_id,
-    {
-        "type": "deposit",
-        "status": "completed",
-        "reference": deposit.reference,
-        "amount": float(deposit.amount),
-        "currency": deposit.currency,
-    },
-)
+            # Make transaction available before LedgerEntry
+            await db.flush()
+
+            await Wallet.credit_wallet(
+                db=db,
+                wallet_id=intent.wallet_id,
+                amount=amount,
+                tx_id=tx_id,
+                entry_type=LedgerEntryType.DEPOSIT
+            )
+
+            # Commit transaction + wallet + ledger entry
+            await db.commit()
+
+        except Exception:
+            await db.rollback()
+            raise
+
+        # Only notify after successful commit
+        await manager.send_to_user(
+            intent.user_id,
+            {
+                "type": "deposit",
+                "status": "completed",
+                "reference": intent.reference,
+                "amount": float(intent.amount),
+                "currency": intent.currency,
+            },
+        )
+
+        return {
+            "status": "success",
+            "message": "wallet credited"
+        }
+
+    # --------------------------------------------------
+    # FAILED / REVERSED / CANCELLED
+    # --------------------------------------------------
+
+    elif status in (
+        "FAILED",
+        "REVERSED",
+        "CANCELLED",
+    ):
+
+        intent.status = TransactionStatus.FAILED
+        intent.flutterwave_response = data
+
+        await db.commit()
+
+        await manager.send_to_user(
+            intent.user_id,
+            {
+                "type": "deposit",
+                "status": "failed",
+                "reference": intent.reference,
+                "amount": float(intent.amount),
+                "currency": intent.currency,
+            },
+        )
+
+        return {
+            "status": "failed",
+            "message": "transaction failed"
+        }
+
+    # --------------------------------------------------
+    # UNKNOWN STATUS
+    # --------------------------------------------------
+
     return {
-        "status": "success",
-        "message": "wallet credited"
+        "status": "ignored",
+        "message": f"Unhandled transaction status: {status}"
     }
-
 
 
 
@@ -618,10 +676,16 @@ async def process_withdrawal(
         amount = Decimal(str(withdrawal.amount))
 
         if status == "SUCCESSFUL":
-
+            await Wallet.debit_wallet(
+                db=db,
+                wallet_id=wallet.id,
+                amount=amount,
+                tx_id=tx.id,
+                entry_type=LedgerEntryType.WITHDRAWAL
+            )
             # Finalize withdrawal
-            wallet.balance -= amount
-            wallet.locked_balance -= amount
+            # wallet.balance -= amount
+            # wallet.locked_balance -= amount
 
             withdrawal.status = TransactionStatus.COMPLETED
             tx.status = TransactionStatus.COMPLETED
