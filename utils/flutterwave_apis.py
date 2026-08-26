@@ -404,7 +404,12 @@ async def get_customer_by_email(email: str):
             f"/customers?email={email}",
             None
         )
-        
+    except Exception as e:
+            raise HTTPException(
+                                                        status_code=500,
+                                                        detail=f"REQUEST HEADER FAILED: {str(e)}---- "
+                                                    ) 
+    try:
         data = result.get("data", [])
         if data:
             return data[0]["id"]
