@@ -66,9 +66,14 @@ def get_flutterwave_token():
         return None
 
 async def request_header(method: str, path: str, payload: dict = None):
-    token_data = get_flutterwave_token()
-    access_token = token_data.get("access_token")
-
+    try:
+        token_data = get_flutterwave_token()
+        access_token = token_data.get("access_token")
+    except Exception as e:
+            raise HTTPException(
+                                                        status_code=500,
+                                                        detail=f"COULD NOT GET TOKEN: {str(e)}---- "
+                                                    ) 
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
