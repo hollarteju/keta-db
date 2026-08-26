@@ -411,7 +411,7 @@ async def get_customer_by_email(email: str):
     except Exception as e:
         raise HTTPException(
                                                     status_code=500,
-                                                    detail=f"COULD NOT GET CUSTOMER: {str(e)}"
+                                                    detail=f"COULD NOT GET CUSTOMER: {str(e)}----"
                                                 ) 
 
 
