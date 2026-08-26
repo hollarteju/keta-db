@@ -8,7 +8,6 @@ import base64
 import secrets
 import string
 import json
-from fastapi import HTTPException, status
 
 
 load_dotenv()
@@ -66,14 +65,9 @@ def get_flutterwave_token():
         return None
 
 async def request_header(method: str, path: str, payload: dict = None):
-    try:
-        token_data = get_flutterwave_token()
-        access_token = token_data.get("access_token")
-    except Exception as e:
-            raise HTTPException(
-                                                        status_code=500,
-                                                        detail=f"COULD NOT GET TOKEN: {str(e)}---- "
-                                                    ) 
+    token_data = get_flutterwave_token()
+    access_token = token_data.get("access_token")
+
     headers = {
         "Authorization": f"Bearer {access_token}",
         "Content-Type": "application/json",
@@ -121,18 +115,18 @@ async def create_customer(email, first_name, last_name, country_code, phone_numb
         }
     }
 
-    # try:
-    #         result = await request_header("post", "/customers", payload)
-    #         return result["data"]["id"]
+    try:
+            result = await request_header("post", "/customers", payload)
+            return result["data"]["id"]
 
-    # except httpx.HTTPStatusError as e:
-    #     if e.response.status_code == 409:
-    existing_id = await get_customer_by_email(email)
+    except httpx.HTTPStatusError as e:
+        if e.response.status_code == 409:
+            existing_id = await get_customer_by_email(email)
 
-        # if existing_id:
-    return existing_id
+            if existing_id:
+                return existing_id
 
-        # raise
+        raise
 
 
 async def get_banks(country: str = "NG"):
@@ -261,87 +255,42 @@ async def create_charge(
 
 
 async def charge_card(amount, currency, customer, card, reference):
+    customer_id = await create_customer(customer.email, customer.first_name, customer.last_name, customer.country_code, customer.phone_number)
+    encryptor = FlutterwaveEncryptor(FLW_ENCRYPTION_KEY)
 
-    try:
+    nonce = generate_nonce()
 
-        customer_id = await create_customer(
-            customer.email,
-            customer.first_name,
-            customer.last_name,
-            customer.country_code,
-            customer.phone_number
-        )
+    payment_method_payload = {
+        "type": "card",
+        "card": {
+            "encrypted_card_number": encryptor.encrypt(card.card_number, nonce),
+            "encrypted_expiry_month": encryptor.encrypt(card.expiry_month, nonce),
+            "encrypted_expiry_year": encryptor.encrypt(card.expiry_year, nonce),
+            "encrypted_cvv": encryptor.encrypt(card.cvv, nonce),
+            "nonce": nonce,
+        },
+    }
 
-    except Exception as e:
-        raise HTTPException(
-                    status_code=500,
-                    detail=f"ERROR AT CREATE CUSTOMER: {str(e)}"
-                )
+    result = await request_header(
+        "post",
+        "/payment-methods",
+        payment_method_payload,
+    )
 
-    try:
+    payment_method_id = result["data"]["id"]
 
-        encryptor = FlutterwaveEncryptor(FLW_ENCRYPTION_KEY)
-        nonce = generate_nonce()
+    charge = await create_charge(
+    amount=amount,
+    currency=currency,
+    reference=reference,
+    customer_id=customer_id,   # Flutterwave customer ID
+    payment_method_id=payment_method_id,
+    redirect_url="https://yourdomain.com/flutterwave/callback",
+   
+)
 
-        payment_method_payload = {
-            "type": "card",
-            "card": {
-                "encrypted_card_number":
-                    encryptor.encrypt(card.card_number, nonce),
+    return charge
 
-                "encrypted_expiry_month":
-                    encryptor.encrypt(card.expiry_month, nonce),
-
-                "encrypted_expiry_year":
-                    encryptor.encrypt(card.expiry_year, nonce),
-
-                "encrypted_cvv":
-                    encryptor.encrypt(card.cvv, nonce),
-
-                "nonce": nonce,
-            },
-        }
-
-
-    except Exception as e:
-        raise HTTPException(
-                            status_code=500,
-                            detail=f"ERROR AT ENCRYPTION: {str(e)}"
-                        )
-
-    try:
-
-        result = await request_header(
-            "post",
-            "/payment-methods",
-            payment_method_payload,
-        )
-
-        payment_method_id = result["data"]["id"]
-
-    except Exception as e:
-        raise HTTPException(
-                                    status_code=500,
-                                    detail=f"ERROR AT PAYMENT METHOD: {str(e)}"
-                                )
-
-    try:
-        charge = await create_charge(
-            amount=amount,
-            currency=currency,
-            reference=reference,
-            customer_id=customer_id,
-            payment_method_id=payment_method_id,
-            redirect_url="https://yourdomain.com/flutterwave/callback",
-        )
-
-        return charge
-
-    except Exception as e:
-        raise HTTPException(
-                                            status_code=500,
-                                            detail=f"ERROR AT CHARGE: {str(e)}"
-                                        )
 
 
 async def authorize_charge_pin(
@@ -403,27 +352,17 @@ async def charge_mobile_money(amount, currency, customer, mobile_money):
 
 
 async def get_customer_by_email(email: str):
-    try:
-        result = await request_header(
-            "get",
-            f"/customers?email={email}",
-            None
-        )
-    except Exception as e:
-            raise HTTPException(
-                                                        status_code=500,
-                                                        detail=f"REQUEST HEADER FAILED: {str(e)}---- "
-                                                    ) 
-    try:
-        data = result.get("data", [])
-        if data:
-            return data[0]["id"]
+    result = await request_header(
+        "get",
+        f"/customers?email={email}",
+        None
+    )
 
-    except Exception as e:
-        raise HTTPException(
-                                                    status_code=500,
-                                                    detail=f"COULD NOT GET CUSTOMER: {str(e)}---- "
-                                                ) 
+    data = result.get("data", [])
+    if data:
+        return data[0]["id"]
+
+    return None
 
 
 

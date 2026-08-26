@@ -219,7 +219,6 @@ async def deposit(
         )
     )
 
-    count = 0
     wallet = wallet_result.scalar_one_or_none()
 
     if not wallet:
@@ -230,27 +229,25 @@ async def deposit(
 
     reference = f"DEP-{uuid4()}"
 
-    # intent = DepositIntent(
-    #     id=str(uuid4()),
-    #     user_id=user.id,
-    #     wallet_id=wallet.id,
-    #     amount=payload.amount,
-    #     currency=payload.currency,
-    #     method=payload.method,
-    #     reference= reference,
-    #     status=TransactionStatus.PENDING
-    # )
-    count += 1
+    intent = DepositIntent(
+        id=str(uuid4()),
+        user_id=user.id,
+        wallet_id=wallet.id,
+        amount=payload.amount,
+        currency=payload.currency,
+        method=payload.method,
+        reference= reference,
+        status=TransactionStatus.PENDING
+    )
 
-    # db.add(intent)
-    # await db.commit()
+    db.add(intent)
+    await db.commit()
     
     try:
 
         match payload.method:
 
             case "card":
-                count += 1
                 if not payload.card:
                     raise HTTPException(
                         400,
@@ -264,7 +261,6 @@ async def deposit(
                     card=payload.card,
                     reference=reference
                 )
-                count += 1
 
                 return {
                     "method": "card",
@@ -299,12 +295,12 @@ async def deposit(
     except Exception as e:
 
         # payment setup failed
-        # intent.status = TransactionStatus.FAILED
+        intent.status = TransactionStatus.FAILED
 
-        # db.add(intent)
-        # await db.commit()
+        db.add(intent)
+        await db.commit()
 
-        raise HTTPException( status_code=500, detail=f"Deposit failed: {count} {str(e)}" )
+        raise HTTPException( status_code=500, detail=f"Deposit failed" )
 
 
 
