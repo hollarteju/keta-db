@@ -398,12 +398,13 @@ async def charge_mobile_money(amount, currency, customer, mobile_money):
 
 
 async def get_customer_by_email(email: str):
-    result = await request_header(
-        "get",
-        f"/customers?email={email}",
-        None
-    )
     try:
+        result = await request_header(
+            "get",
+            f"/customers?email={email}",
+            None
+        )
+        
         data = result.get("data", [])
         if data:
             return data[0]["id"]
@@ -411,7 +412,7 @@ async def get_customer_by_email(email: str):
     except Exception as e:
         raise HTTPException(
                                                     status_code=500,
-                                                    detail=f"COULD NOT GET CUSTOMER: {str(e)}----"
+                                                    detail=f"COULD NOT GET CUSTOMER: {str(e)}---- "
                                                 ) 
 
 
