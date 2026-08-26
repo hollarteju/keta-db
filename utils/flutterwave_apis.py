@@ -8,6 +8,7 @@ import base64
 import secrets
 import string
 import json
+from fastapi import HTTPException, status
 
 
 load_dotenv()
@@ -243,7 +244,6 @@ async def create_charge(
         "meta": meta or {},
     }
 
-    print("Charge Payload:")
     print(json.dumps(payload, indent=2))
 
     response = await request_header(
@@ -256,42 +256,87 @@ async def create_charge(
 
 
 async def charge_card(amount, currency, customer, card, reference):
-    customer_id = await create_customer(customer.email, customer.first_name, customer.last_name, customer.country_code, customer.phone_number)
-    encryptor = FlutterwaveEncryptor(FLW_ENCRYPTION_KEY)
 
-    nonce = generate_nonce()
+    try:
 
-    payment_method_payload = {
-        "type": "card",
-        "card": {
-            "encrypted_card_number": encryptor.encrypt(card.card_number, nonce),
-            "encrypted_expiry_month": encryptor.encrypt(card.expiry_month, nonce),
-            "encrypted_expiry_year": encryptor.encrypt(card.expiry_year, nonce),
-            "encrypted_cvv": encryptor.encrypt(card.cvv, nonce),
-            "nonce": nonce,
-        },
-    }
+        customer_id = await create_customer(
+            customer.email,
+            customer.first_name,
+            customer.last_name,
+            customer.country_code,
+            customer.phone_number
+        )
 
-    result = await request_header(
-        "post",
-        "/payment-methods",
-        payment_method_payload,
-    )
+    except Exception as e:
+        raise HTTPException(
+                    status_code=500,
+                    detail=f"ERROR AT CREATE CUSTOMER: {str(e)}"
+                )
 
-    payment_method_id = result["data"]["id"]
+    try:
 
-    charge = await create_charge(
-    amount=amount,
-    currency=currency,
-    reference=reference,
-    customer_id=customer_id,   # Flutterwave customer ID
-    payment_method_id=payment_method_id,
-    redirect_url="https://yourdomain.com/flutterwave/callback",
-   
-)
+        encryptor = FlutterwaveEncryptor(FLW_ENCRYPTION_KEY)
+        nonce = generate_nonce()
 
-    return charge
+        payment_method_payload = {
+            "type": "card",
+            "card": {
+                "encrypted_card_number":
+                    encryptor.encrypt(card.card_number, nonce),
 
+                "encrypted_expiry_month":
+                    encryptor.encrypt(card.expiry_month, nonce),
+
+                "encrypted_expiry_year":
+                    encryptor.encrypt(card.expiry_year, nonce),
+
+                "encrypted_cvv":
+                    encryptor.encrypt(card.cvv, nonce),
+
+                "nonce": nonce,
+            },
+        }
+
+
+    except Exception as e:
+        raise HTTPException(
+                            status_code=500,
+                            detail=f"ERROR AT ENCRYPTION: {str(e)}"
+                        )
+
+    try:
+
+        result = await request_header(
+            "post",
+            "/payment-methods",
+            payment_method_payload,
+        )
+
+        payment_method_id = result["data"]["id"]
+
+    except Exception as e:
+        raise HTTPException(
+                                    status_code=500,
+                                    detail=f"ERROR AT PAYMENT METHOD: {str(e)}"
+                                )
+
+    try:
+        charge = await create_charge(
+            amount=amount,
+            currency=currency,
+            reference=reference,
+            customer_id=customer_id,
+            payment_method_id=payment_method_id,
+            redirect_url="https://yourdomain.com/flutterwave/callback",
+        )
+
+        return charge
+
+    except Exception as e:
+        raise HTTPException(
+                                            status_code=500,
+                                            detail=f"ERROR AT CHARGE: {str(e)}"
+                                        )
 
 
 async def authorize_charge_pin(
