@@ -116,18 +116,18 @@ async def create_customer(email, first_name, last_name, country_code, phone_numb
         }
     }
 
-    try:
-            result = await request_header("post", "/customers", payload)
-            return result["data"]["id"]
+    # try:
+    #         result = await request_header("post", "/customers", payload)
+    #         return result["data"]["id"]
 
-    except httpx.HTTPStatusError as e:
-        if e.response.status_code == 409:
-            existing_id = await get_customer_by_email(email)
+    # except httpx.HTTPStatusError as e:
+    #     if e.response.status_code == 409:
+    existing_id = await get_customer_by_email(email)
 
-            if existing_id:
-                return existing_id
+        # if existing_id:
+    return existing_id
 
-        raise
+        # raise
 
 
 async def get_banks(country: str = "NG"):
