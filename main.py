@@ -12,6 +12,8 @@ from router.exchange_rate import rate
 from router.wallets import wallets
 from router.refresh_token import refresh_token
 from router.swaps import swaps
+from router.settings import settings
+from router import webhooks
 from database import clear_alembic_version, reset_db
 
 
@@ -40,8 +42,8 @@ app.include_router(refresh_token.router)
 app.include_router(wallets.router)
 app.include_router(rate.router)
 app.include_router(swaps.router)
-# app.include_router(tasks.router)
-# app.include_router(places.router)
+app.include_router(webhooks.router)
+app.include_router(settings.router)
 app.include_router(websocket_router)
 # app.include_router(submit_task.router)
 # app.include_router(get_submit_tasks.router)
@@ -59,6 +61,7 @@ app.include_router(websocket_router)
 #     return "Operation completed"
 @app.get("/")
 async def outbound_ip():
+    print("poll......")
     async with httpx.AsyncClient() as client:
         r = await client.get("https://api.ipify.org?format=json")
         return r.json()

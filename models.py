@@ -1,6 +1,6 @@
 import uuid
 from sqlalchemy import Column, Integer, Numeric, text, String, ForeignKey, DateTime, Boolean, Date, Time, Text, Enum, JSON, UniqueConstraint
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, Mapped, mapped_column
 from database import Base
 from sqlalchemy.sql import select, func
 
@@ -117,6 +117,7 @@ class Swap_bidstatus(PyEnum):
     EXECUTED = "executed"
     CANCELLED = "cancelled"
 
+
 class DepositMethod(PyEnum):
     BANK_TRANSFER = "bank_transfer"
     CARD = "card"
@@ -148,6 +149,11 @@ class NotificationStatus(PyEnum):
     UNREAD = "unread"
     READ = "read"
     ARCHIVED = "archived"
+
+
+class TWOFACTORMETHOD(PyEnum):
+    EMAIL = "email"
+    AUTHENTICATOR = "authenticator"
 
 
 class User(Base):
@@ -187,6 +193,20 @@ class User(Base):
         order_by="Notification.created_at.desc()"
     )
     swap_bids = relationship("SwapBid", back_populates="buyer")
+
+    settings = relationship(
+        "Settings",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
+    kyc = relationship(
+    "KYCVerification",
+    back_populates="user",
+    uselist=False,
+    cascade="all, delete-orphan",
+)
 
     def is_valid_password(pw: str) -> bool:
         return bool(re.fullmatch(r"\d{6}", pw))
@@ -234,8 +254,7 @@ class Wallet(Base):
         if amount <= 0:
             raise ValueError("Amount must be positive")
 
-        
-        
+
         # Update wallet balance (materialized)
         result = await db.execute(select(Wallet).where(Wallet.id == wallet_id).with_for_update())
         wallet = result.scalar_one()
@@ -264,16 +283,15 @@ class Wallet(Base):
         if wallet.balance < amount:
             raise InsufficientFundsError("Insufficient wallet balance")
 
-        
         wallet.balance -= amount
         db.add(wallet)
-        
+
         entry = LedgerEntry(
-                    wallet_id=wallet_id,
-                    amount=-amount,
-                    transaction_id=tx_id,
-                    entry_type=entry_type
-                )
+            wallet_id=wallet_id,
+            amount=-amount,
+            transaction_id=tx_id,
+            entry_type=entry_type
+            )
         db.add(entry)
         # await db.commit()
         # await db.refresh(wallet)
@@ -605,8 +623,6 @@ class Swap(Base):
             return False
 
         return True
-    
-
 
 
 class SwapBid(Base):
@@ -640,9 +656,9 @@ class SwapBid(Base):
     )
 
     amount = Column(
-            Numeric(18, 8),
-            nullable=False
-        )
+        Numeric(18, 8),
+        nullable=False
+    )
 
     # Buyer's proposed rate
     bid_rate = Column(
@@ -680,7 +696,6 @@ class SwapBid(Base):
     buyer = relationship("User")
     buyer_wallet = relationship("Wallet")
 
-     
 
 class SwapExecution(Base):
     __tablename__ = "swap_executions"
@@ -766,7 +781,6 @@ class Notification(Base):
         nullable=True
     )
 
-
     reference_id = Column(
         String(36),
         nullable=True,
@@ -784,7 +798,6 @@ class Notification(Base):
         nullable=True
     )
 
-  
     push_enabled = Column(
         Boolean,
         default=True,
@@ -797,7 +810,6 @@ class Notification(Base):
         nullable=False
     )
 
-   
     push_sent = Column(
         Boolean,
         default=False,
@@ -810,7 +822,6 @@ class Notification(Base):
         nullable=False
     )
 
-    
     read_at = Column(
         DateTime(timezone=True),
         nullable=True
@@ -856,3 +867,175 @@ class Notification(Base):
     @property
     def is_read(self):
         return self.status == NotificationStatus.READ
+
+class Settings(Base):
+    __tablename__ = "settings"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False,
+    )
+
+    two_factor_enabled = Column(Boolean, default=False)
+    two_factor_methods = Column(JSON, Enum(TWOFACTORMETHOD), nullable=True)
+    authenticator_secret = Column(String(255), nullable=True)
+    email_2fa_verified = Column(Boolean, default=False, nullable=False)
+    authenticator_2fa_verified = Column(Boolean, default=False, nullable=False)
+
+    # login_notifications = Column(Boolean, default=True)
+    # biometric_enabled = Column(Boolean, default=False)
+
+    # daily_transaction_limit = Column(
+    #     Numeric(18, 2),
+    #     nullable=True,
+    # )
+
+    # payment_confirmation = Column(Boolean, default=True)
+
+    # p2p_enabled = Column(Boolean, default=True)
+    # p2p_trade_notifications = Column(Boolean, default=True)
+
+    profile_visible = Column(Boolean, default=True)
+    # analytics_enabled = Column(Boolean, default=True)
+
+    # push_notifications = Column(Boolean, default=True)
+    email_notifications = Column(Boolean, default=True)
+    # sms_notifications = Column(Boolean, default=True)
+
+    user = relationship(
+        "User",
+        back_populates="settings"
+    )
+
+
+
+class KYCVerification(Base):
+    __tablename__ = "kyc_verifications"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id"),
+        unique=True,
+        nullable=False,
+    )
+
+    provider = Column(
+        String(50),
+        default="deepidv",
+        nullable=False,
+    )
+
+    session_id = Column(
+        String(255),
+        nullable=True,
+    )
+
+    status = Column(
+        String(50),
+        default="pending",
+        nullable=False,
+    )
+
+    kyc_tier = Column(
+        Integer,
+        default=1,
+        nullable=False,
+    )
+
+    nin_verified = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    bvn_verified = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    identity_verified = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    document_verified = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    liveness_verified = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    face_verified = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    aml_clear = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    pep_match = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    sanctions_match = Column(
+        Boolean,
+        default=False,
+        nullable=False,
+    )
+
+    risk_score = Column(
+        Numeric(10, 2),
+        nullable=True,
+    )
+
+    failure_reason = Column(
+        Text,
+        nullable=True,
+    )
+
+    provider_response = Column(
+        JSON,
+        nullable=True,
+    )
+
+    verified_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    updated_at = Column(
+        DateTime,
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    user = relationship(
+        "User",
+        back_populates="kyc",
+    )

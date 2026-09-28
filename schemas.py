@@ -660,3 +660,65 @@ class DepositIntentOut(BaseModel):
 class CardPinRequest(BaseModel):
     charge_id: str
     pin: str
+
+class UserSettingsUpdate(BaseModel):
+    two_factor_enabled: Optional[bool] = None
+    two_factor_methods: Optional[List[str]] = None
+
+    # login_notifications: Optional[bool] = None
+
+    # biometric_enabled: Optional[bool] = None
+    # daily_transaction_limit: Optional[Decimal] = None
+
+    # payment_confirmation: Optional[bool] = None
+
+    # p2p_enabled: Optional[bool] = None
+    # p2p_trade_notifications: Optional[bool] = None
+
+    profile_visible: Optional[bool] = None
+    # analytics_enabled: Optional[bool] = None
+
+    # push_notifications: Optional[bool] = None
+    email_notifications: Optional[bool] = None
+    # sms_notifications: Optional[bool] = None
+
+
+class UserSettingsResponse(BaseModel):
+    id: int
+    user_id: str
+
+    two_factor_enabled: bool
+    two_factor_methods: Optional[List[str]]
+
+    # login_notifications: bool
+
+    # biometric_enabled: bool
+    # daily_transaction_limit: Optional[Decimal]
+
+    # payment_confirmation: bool
+
+    # p2p_enabled: bool
+    # p2p_trade_notifications: bool
+
+    profile_visible: bool
+    # analytics_enabled: bool
+
+    # push_notifications: bool
+    email_notifications: bool
+    # sms_notifications: bool
+
+    model_config = {
+            "from_attributes": True
+        }
+
+class AuthenticatorVerifyRequest(BaseModel):
+    code: str = Field(
+        ...,
+        min_length=6,
+        max_length=6,
+        pattern=r"^\d{6}$",
+        description="6-digit authenticator code",
+    )
+
+class KYCStartRequest(BaseModel):
+    reference_id: str

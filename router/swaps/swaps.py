@@ -93,7 +93,7 @@ async def get_all_swaps(
     result = await db.execute(
         select(Swap)
         .options(selectinload(Swap.creator))
-        .where(Swap.status == SwapStatus.OPEN)
+        .where(Swap.status == SwapStatus.OPEN, Swap.creator_id != user.id)
     )
 
     swaps = result.scalars().all()
@@ -110,9 +110,7 @@ async def get_all_swaps(
             "rate": swap.rate,
             "expires_at": swap.expires_at,
             "status": swap.status,
-
-            # 👇 key part
-            "creator_name": "you" if swap.creator_id == user.id else swap.creator.full_name
+            "creator_name": swap.creator.full_name
         }
         for swap in swaps
     ]
@@ -461,26 +459,25 @@ async def confirm_swap_purchase(
             )
 
         transaction_tx = Transaction(
-                    header="Swap Sold",
-                    description=(
-                        f"Bought {bid.amount} {swap.to_currency} "
-                        f"from {swap.creator_id} "
-                        f"at rate {bid.bid_rate}"
-                    ),
-                    from_user_id=bid.buyer_id,
-                    to_user_id=swap.creator_id,
-                    type=TransactionType.BUY,
-                    status=TransactionStatus.COMPLETED,
-                    from_currency=swap.from_currency,
-                    to_currency=swap.to_currency,
-                    from_amount=bid.locked_amount,
-                    to_amount=bid.amount,
-                    reference=tx_id
-                )
+            header="Swap Sold",
+            description=(
+                f"Bought {bid.amount} {swap.to_currency} "
+                f"from {swap.creator_id} "
+                f"at rate {bid.bid_rate}"
+            ),
+            from_user_id=bid.buyer_id,
+            to_user_id=swap.creator_id,
+            type=TransactionType.BUY,
+            status=TransactionStatus.COMPLETED,
+            from_currency=swap.from_currency,
+            to_currency=swap.to_currency,
+            from_amount=bid.locked_amount,
+            to_amount=bid.amount,
+            reference=tx_id
+        )
 
         db.add(transaction_tx)
         await db.flush()
-        
 
         # spend vendor locked amount
         await Wallet.spend_locked_balance(
@@ -489,7 +486,6 @@ async def confirm_swap_purchase(
             bid.amount
         )
 
-        
         await Wallet.debit_wallet(
             db=db,
             wallet_id=swap.wallet_id,
@@ -697,127 +693,3 @@ async def confirm_swap_purchase(
     }
 
 
-# # 2️⃣ Confirm Swap Purchase (after payment confirmation)
-# @router.post("/buy/confirm/{swap_id}")
-# async def confirm_swap_purchase(
-#     swap_id: str,
-#     amount: Decimal,
-#     user_id: str,
-#     db: AsyncSession = Depends(get_db)
-# ):
-#     # Get swap
-#     result = await db.execute(select(Swap).where(Swap.id == swap_id))
-#     swap: Swap = result.scalar_one_or_none()
-#     if not swap or swap.status in ["filled", "cancelled"]:
-#         raise HTTPException(status_code=400, detail="Swap not available")
-
-#     # Get buyer wallet
-#     result = await db.execute(
-#         select(Wallet).where(Wallet.user_id == user_id,
-#                              Wallet.currency == swap.to_currency)
-#     )
-#     buyer_wallet: Wallet = result.scalar_one_or_none()
-
-#     if not buyer_wallet:
-#         raise HTTPException(status_code=400, detail="Buyer wallet not found")
-
-#     try:
-#         await Wallet.spend_locked_balance(db, buyer_wallet.id, amount)
-#     except InsufficientFundsError:
-#         raise HTTPException(
-#             status_code=400, detail="Insufficient locked balance")
-
-#     # Update swap remaining amount
-#     swap.remaining_amount -= amount
-#     swap.status = "filled" if swap.remaining_amount == 0 else "partial"
-#     db.add(swap)
-
-#     # Create buyer transaction
-#     tx_id = str(uuid4())
-#     buyer_tx = Transaction(
-#         id=tx_id,
-#         header="Swap Purchase",
-#         description=f"Bought {amount} {swap.to_currency} from {swap.creator_id} at rate {swap.rate}",
-#         from_user_id=user_id,
-#         to_user_id=swap.creator_id,
-#         type=TransactionType.BUY,
-#         status=TransactionStatus.COMPLETED,
-#         from_currency=swap.from_currency,
-#         to_currency=swap.to_currency,
-#         from_amount=amount,
-#         to_amount=amount,
-#         reference=str(uuid4())
-#     )
-#     db.add(buyer_tx)
-
-#     # Credit seller wallet
-#     result = await db.execute(
-#         select(Wallet).where(Wallet.user_id == swap.creator_id,
-#                              Wallet.currency == swap.to_currency)
-#     )
-#     seller_wallet: Wallet = result.scalar_one_or_none()
-#     if not seller_wallet:
-#         raise HTTPException(status_code=400, detail="Seller wallet not found")
-#     seller_wallet.balance += amount
-#     db.add(seller_wallet)
-
-#     # Create SwapExecution
-#     execution = SwapExecution(
-#         id=str(uuid4()),
-#         swap_id=swap.id,
-#         taker_id=user_id,
-#         amount=amount,
-#         rate=swap.rate,
-#         from_currency=swap.from_currency,
-#         to_currency=swap.to_currency,
-#         transaction_id=tx_id,
-#         created_at=datetime.utcnow()
-#     )
-#     db.add(execution)
-
-
-#     await create_notification(
-#     db,
-#     user_id=user_id,
-#     notification_type=NotificationType.SWAP,
-#     title="Swap Purchase Successful",
-#     message=f"You successfully bought {amount} {swap.to_currency}.",
-#     reference_id=tx_id,
-#     reference_type="transaction",
-#     extra_data={
-#         "swap_id": str(swap.id),
-#         "role": "buyer",
-#     },
-# )
-
-#     await create_notification(
-#     db,
-#     user_id=swap.creator_id,
-#     notification_type=NotificationType.SWAP,
-#     title="Your Swap Was Purchased",
-#     message=f"{amount} {swap.to_currency} from your swap was purchased.",
-#     reference_id=tx_id,
-#     reference_type="transaction",
-#     extra_data={
-#         "swap_id": str(swap.id),
-#         "role": "seller",
-#     },
-#     )
-
-#     await db.commit()
-#     await db.refresh(swap)
-
-#     {
-#         "event": "swap_completed",
-#         "swap": {
-#             "id": str(swap.id),
-#             "remaining_amount": float(swap.remaining_amount),
-#             "from_currency": swap.from_currency,
-#             "to_currency": swap.to_currency,
-#             "created_at": swap.created_at.isoformat() if swap.created_at else None,
-#             "buyer_name": f"{swap.creator.first_name} {swap.creator.last_name}"
-
-#         }
-#     }
-
-#     return {"message": "Swap purchase confirmed", "swap": swap, "execution": execution}
