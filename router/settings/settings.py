@@ -73,7 +73,20 @@ async def get_settings(
     
     kyc = kyc_result.scalar_one_or_none()
 
-    return {"settings": settings, "kyc": kyc}
+    settings_data = {
+        column.name: getattr(settings, column.name)
+        for column in Settings.__table__.columns
+        if column.name not in {
+            "transaction_pin_hash",
+            "transaction_pin_changed_at",
+        }
+    }
+
+    return {
+        "settings": settings_data,
+        "kyc": kyc,
+    }
+
 
 
 @router.put(

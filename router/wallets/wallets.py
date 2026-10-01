@@ -8,7 +8,7 @@ from utils.dependencies.auth import get_current_user
 from decimal import Decimal
 from sqlalchemy import func, case, select
 import json
-from models import Wallet, User, WalletType, Withdrawal, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
+from models import Wallet, User, WalletType, Settings, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
 from schemas import WalletResponse, DepositRequest, CardPinRequest
 from dotenv import load_dotenv
 from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money
@@ -312,6 +312,7 @@ async def transfer_funds(
     bank_code: str,
     currency: str,
     amount: float,
+    transaction_pin: str,
     db: AsyncSession = Depends(get_db),
     user: User = Depends(get_current_user)
 ):
@@ -319,6 +320,35 @@ async def transfer_funds(
     amount_dec = Decimal(str(amount))
 
     try:
+        result = await db.execute(
+                select(Settings).where(
+                    Settings.user_id == user.id
+                )
+            )
+        
+        settings = result.scalar_one_or_none()
+    
+        if not settings:
+            raise HTTPException(
+                status_code=404,
+                detail="User settings not found",
+            )
+
+        validate = settings.verify_transaction_pin(transaction_pin)
+
+        if(not validate):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid transaction PIN",
+            )
+        
+
+        if not validate:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid transaction PIN",
+            )
+        
         result = await db.execute(
             select(Wallet).where(
                 Wallet.user_id == user.id,

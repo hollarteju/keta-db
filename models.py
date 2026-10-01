@@ -940,6 +940,7 @@ class TransactionPinHistory(Base):
         nullable=False,
         index=True,
     )
+    
 
     action = Column(
         String(30),
