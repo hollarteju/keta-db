@@ -922,6 +922,12 @@ class Settings(Base):
         back_populates="settings"
     )
 
+    def is_valid_pin(pw: str) -> bool:
+            return bool(re.fullmatch(r"\d{4}", pw))
+    
+    def verify_transaction_pin(self, hashed_pin: str) -> bool:
+        return hashed_pin == self.transaction_pin_hash
+
 
 class TransactionPinHistory(Base):
     __tablename__ = "transaction_pin_history"

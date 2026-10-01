@@ -1,7 +1,9 @@
+import datetime
+
 from fastapi import APIRouter, HTTPException, status, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import User, Settings, KYCVerification
+from models import User, Settings, KYCVerification, TransactionPinHistory
 from schemas import UserSettingsResponse, UserSettingsUpdate, AuthenticatorVerifyRequest, KYCStartRequest
 from database import get_db
 from utils.dependencies.auth import get_current_user
@@ -11,6 +13,8 @@ import io
 import base64
 import os
 import httpx
+from datetime import datetime
+
 
 router = APIRouter(
     prefix="/api/v1/settings",
@@ -193,7 +197,7 @@ async def create_kyc_session(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    api_key = "5HKrRYuBPL6PWRI0ssEuD3yYZ3Z1xDn81nYLljqy"
+    api_key = "1PFk1YamUeLrno4jb2qO5bZX3FyOy3b8b80zbIZ7"
 
     if not api_key:
         raise HTTPException(
@@ -207,7 +211,7 @@ async def create_kyc_session(
         "email": current_user.email,
         "phone": "+2347052490998",
         "externalId": current_user.id,
-        "redirect_url": "https://observer-egotistic-exorcism.ngrok-free.dev/api/v1/setting/deepidv-webhook",
+        "redirect_url": "https://observer-egotistic-exorcism.ngrok-free.dev/api/v1/settings/deepidv-webhook",
         "expires_in_hours": 48,
     }
 
@@ -270,10 +274,10 @@ async def create_kyc_session(
 @router.post("/deepidv-webhook")
 async def deepidv_webhook(
     request: Request,
-    signature: str | None = Header(default=os.getenv("DEEPIDV_WEBHOOK_SECRET"), alias=os.getenv("DEEPDIV_WEBHOOK_KEY")),
+    signature: str | None = Header(default="eEhJDh2PpD91cXTE3g23x3c3XTLAAubT1baihzCP", alias=os.getenv("whsec_KH5FMwJzcJKnK0c-u_jjnP1Nx2Z8ZekX")),
 ):
     print("webhook endpoints: here!")
-    webhook_secret = DEEPIDV_WEBHOOK_SECRET
+    webhook_secret = "eEhJDh2PpD91cXTE3g23x3c3XTLAAubT1baihzCP"
 
     if signature != webhook_secret:
         raise HTTPException(
@@ -312,111 +316,50 @@ async def deepidv_webhook(
     return {"received": True}
 
 
-# @router.post("/deepidv-webhook")
-# async def deepidv_webhook(
-#     request: Request,
-#     db: AsyncSession = Depends(get_db),
-#     signature: str | None = Header(
-#         default=None,
-#         alias="whsec_....",
-#     ),
-# ):
-#     print("Webhook endpoint: here!")
+@router.post("/transaction-pin")
+async def create_transaction_pin(
+    transaction_pin: str,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    result = await db.execute(
+        select(Settings).where(
+            Settings.user_id == current_user.id
+        )
+    )
 
-#     # 1. Validate webhook signature
-#     webhook_secret = DEEPIDV_WEBHOOK_SECRET
+    settings = result.scalar_one_or_none()
 
-#     if signature != webhook_secret:
-#         raise HTTPException(
-#             status_code=401,
-#             detail="Invalid signature",
-#         )
+    if not settings:
+        raise HTTPException(
+            status_code=404,
+            detail="User settings not found",
+        )
+    # validate = settings.verify_transaction_pin(transaction_pin)
 
-#     # 2. Get webhook payload
-#     event = await request.json()
+    # if not validate:
+    #     raise HTTPException(
+    #         status_code=400,
+    #         detail="Invalid transaction PIN",
+    #     )
 
-#     event_type = event.get("type")
-#     data = event.get("data") or {}
+    settings.transaction_pin_hash = transaction_pin
+    settings.transaction_pin_enabled = True
+    settings.transaction_pin_changed_at = datetime.utcnow()
 
-#     session_id = data.get("id")
+    history = TransactionPinHistory(
+        user_id=current_user.id,
+        action="CREATED",
+        ip_address=request.client.host if request.client else None,
+        reason="Transaction PIN created",
+    )
 
-#     print(f"Webhook event: {event_type}")
-#     print(f"DeepIDV session ID: {session_id}")
-#     print(f"Webhook data: {data}")
+    db.add(history)
 
-#     if not session_id:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Session ID missing from webhook",
-#         )
+    await db.commit()
 
-#     # 3. Find user's settings using DeepIDV session ID
-#     result = await db.execute(
-#         select(Settings).where(
-#             Settings.session_id == session_id
-#         )
-#     )
-
-#     settings = result.scalar_one_or_none()
-
-#     if not settings:
-#         print(
-#             f"No user found for DeepIDV session: {session_id}"
-#         )
-
-#         # Return 200 so DeepIDV doesn't repeatedly retry
-#         return {
-#             "received": True,
-#             "message": "User session not found",
-#         }
-
-#     # 4. Find the user
-#     user_result = await db.execute(
-#         select(User).where(
-#             User.id == settings.user_id
-#         )
-#     )
-
-#     user = user_result.scalar_one_or_none()
-
-#     if not user:
-#         print(
-#             f"User not found: {settings.user_id}"
-#         )
-
-#         return {
-#             "received": True,
-#             "message": "User not found",
-#         }
-
-#     # 5. Save KYC status
-#     if event_type == "session.status.submitted":
-#         user.kyc_status = "submitted"
-
-#     elif event_type == "session.status.verified":
-#         user.kyc_status = "verified"
-
-#     elif event_type == "session.status.rejected":
-#         user.kyc_status = "rejected"
-
-#     elif event_type == "session.status.failed":
-#         user.kyc_status = "failed"
-
-#     elif event_type == "session.created":
-#         user.kyc_status = "pending"
-
-#     else:
-#         print(f"Unhandled event type: {event_type}")
-
-#     # 6. Save changes
-#     await db.commit()
-
-#     print(
-#         f"KYC updated for user {user.id}: "
-#         f"{user.kyc_status}"
-#     )
-
-#     # 7. Acknowledge webhook
-#     return {
-#         "received": True,
-#     }
+    return {
+        "message": "Transaction PIN created successfully",
+        "enabled": True,
+    }

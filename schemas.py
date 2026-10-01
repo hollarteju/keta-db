@@ -723,3 +723,21 @@ class AuthenticatorVerifyRequest(BaseModel):
 
 class KYCStartRequest(BaseModel):
     reference_id: str
+
+
+class CreateTransactionPinRequest(BaseModel):
+    pin: str = Field(..., min_length=6, max_length=6)
+    confirm_pin: str = Field(..., min_length=6, max_length=6)
+
+    @field_validator("pin", "confirm_pin")
+    @classmethod
+    def validate_pin(cls, value: str) -> str:
+        if not value.isdigit():
+            raise ValueError("Transaction PIN must contain only numbers")
+
+        return value
+
+
+class TransactionPinResponse(BaseModel):
+    message: str
+    enabled: bool
