@@ -128,7 +128,7 @@ async def setup_authenticator(
     }
 
 
-@router.post("/settings/2fa/authenticator/verify")
+@router.post("/2fa/authenticator/verify")
 async def verify_authenticator(
     payload: AuthenticatorVerifyRequest,
     db: AsyncSession = Depends(get_db),

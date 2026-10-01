@@ -881,7 +881,7 @@ class Settings(Base):
     )
 
     two_factor_enabled = Column(Boolean, default=False)
-    two_factor_methods = Column(JSON, Enum(TWOFACTORMETHOD), nullable=True)
+    two_factor_methods = Column(JSON, Enum(TWOFACTORMETHOD), nullable=True, default=list)
     authenticator_secret = Column(String(255), nullable=True)
     email_2fa_verified = Column(Boolean, default=False, nullable=False)
     authenticator_2fa_verified = Column(Boolean, default=False, nullable=False)
