@@ -683,6 +683,7 @@ class UserSettingsUpdate(BaseModel):
     # sms_notifications: Optional[bool] = None
 
 
+
 class UserSettingsResponse(BaseModel):
     id: int
     user_id: str

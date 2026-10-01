@@ -1,7 +1,7 @@
 from fastapi import APIRouter, HTTPException, status, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import User, Settings
+from models import User, Settings, KYCVerification
 from schemas import UserSettingsResponse, UserSettingsUpdate, AuthenticatorVerifyRequest, KYCStartRequest
 from database import get_db
 from utils.dependencies.auth import get_current_user
@@ -44,7 +44,7 @@ def create_authenticator_setup(email: str):
 
 
 
-@router.get("/", response_model=UserSettingsResponse)
+@router.get("/")
 async def get_settings(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
@@ -61,7 +61,15 @@ async def get_settings(
             detail="User settings not found"
         )
 
-    return settings
+    kyc_result = await db.execute(
+            select(KYCVerification).where(
+                KYCVerification.user_id == current_user.id
+            )
+        )
+    
+    kyc = kyc_result.scalar_one_or_none()
+
+    return {"settings": settings, "kyc": kyc}
 
 
 @router.put(
@@ -179,37 +187,6 @@ async def verify_authenticator(
     }
 
 
-@router.post("/kyc/start")
-async def start_kyc(
-    payload: KYCStartRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-   
-    result = await db.execute(
-            select(Settings).where(
-                Settings.user_id == current_user.id
-            )
-        )
-    
-    settings = result.scalar_one_or_none()
-
-    if not settings:
-            raise HTTPException(
-                status_code=404,
-                detail="User settings not found",
-            )
-    settings.session_id = payload.reference_id
-    await db.commit()
-    await db.refresh(settings)
-
-    return {
-        "message": "KYC session started successfully",
-        "session_id": settings.session_id,
-    }
-
-
-
 
 @router.post("/kyc/session")
 async def create_kyc_session(
@@ -277,6 +254,8 @@ async def create_kyc_session(
             status_code=502,
             detail="DeepIDV did not return a session ID",
         )
+
+    print(deepidv_data.session_url)
 
     return {
         "message": "KYC session created successfully",
