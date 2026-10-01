@@ -124,6 +124,7 @@ async def setup_authenticator(
     return {
         "message": "Authenticator setup initialized",
         "otp_uri": setup["otp_uri"],
+        "otp_secret": setup["secret"],
         "qr_code": setup["qr_code"],
     }
 
