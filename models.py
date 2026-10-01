@@ -201,6 +201,13 @@ class User(Base):
         cascade="all, delete-orphan",
     )
 
+    transaction_pin_history = relationship(
+        "TransactionPinHistory",
+        back_populates="user",
+        uselist=False,
+        cascade="all, delete-orphan",
+    )
+
     kyc = relationship(
     "KYCVerification",
     back_populates="user",
@@ -886,6 +893,10 @@ class Settings(Base):
     email_2fa_verified = Column(Boolean, default=False, nullable=False)
     authenticator_2fa_verified = Column(Boolean, default=False, nullable=False)
 
+    transaction_pin_hash = Column(String(255), nullable=True)
+    transaction_pin_enabled = Column(Boolean, default=False, nullable=False)
+    transaction_pin_changed_at = Column(DateTime, nullable=True)
+
     # login_notifications = Column(Boolean, default=True)
     # biometric_enabled = Column(Boolean, default=False)
 
@@ -912,6 +923,38 @@ class Settings(Base):
     )
 
 
+class TransactionPinHistory(Base):
+    __tablename__ = "transaction_pin_history"
+
+    id = Column(Integer, primary_key=True)
+
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    action = Column(
+        String(30),
+        nullable=False,
+    )
+    # CREATED
+    # CHANGED
+    # RESET
+    # DISABLED
+
+    changed_at = Column(
+        DateTime,
+        server_default=func.now(),
+        nullable=False,
+    )
+
+    ip_address = Column(String(45), nullable=True)
+    reason = Column(String(100), nullable=True)
+
+    user = relationship("User")
+
 
 class KYCVerification(Base):
     __tablename__ = "kyc_verifications"
@@ -935,6 +978,10 @@ class KYCVerification(Base):
         String(255),
         nullable=True,
     )
+
+    
+
+    external_id = Column(String(255), nullable=True)
 
     status = Column(
         String(50),

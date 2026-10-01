@@ -9,7 +9,8 @@ import pyotp
 import qrcode
 import io
 import base64
-
+import os
+import httpx
 
 router = APIRouter(
     prefix="/api/v1/settings",
@@ -208,12 +209,89 @@ async def start_kyc(
     }
 
 
-DEEPIDV_WEBHOOK_SECRET="eEhJDh2PpD91cXTE3g23x3c3XTLAAubT1baihzCP"
+
+
+@router.post("/kyc/session")
+async def create_kyc_session(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    api_key = "5HKrRYuBPL6PWRI0ssEuD3yYZ3Z1xDn81nYLljqy"
+
+    if not api_key:
+        raise HTTPException(
+            status_code=500,
+            detail="DEEPIDV_KEY is not configured",
+        )
+
+    deepidv_payload = {
+        "firstName": current_user.first_name,
+        "lastName": current_user.last_name,
+        "email": current_user.email,
+        "phone": "+2347052490998",
+        "externalId": current_user.id,
+        "redirect_url": "https://observer-egotistic-exorcism.ngrok-free.dev/api/v1/setting/deepidv-webhook",
+        "expires_in_hours": 48,
+    }
+
+    headers = {
+        "x-api-key": api_key,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.post(
+                "https://api.deepidv.com/v1/sessions",
+                headers=headers,
+                json=deepidv_payload,
+            )
+
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Unable to connect to DeepIDV: {str(exc)}",
+        )
+
+    if response.status_code >= 400:
+        try:
+            error_data = response.json()
+        except Exception:
+            error_data = response.text
+
+        raise HTTPException(
+            status_code=response.status_code,
+            detail={
+                "message": "DeepIDV session creation failed",
+                "deepidv_response": error_data,
+            },
+        )
+
+    deepidv_data = response.json()
+
+    session_id = deepidv_data.get("id")
+
+    if not session_id:
+        raise HTTPException(
+            status_code=502,
+            detail="DeepIDV did not return a session ID",
+        )
+
+    return {
+        "message": "KYC session created successfully",
+        "session_id": session_id,
+        "external_id": current_user.id,
+        "status": deepidv_data.get("status"),
+        "session_progress": deepidv_data.get("session_progress"),
+        "deepidv_response": deepidv_data,
+    }
+
 
 @router.post("/deepidv-webhook")
 async def deepidv_webhook(
     request: Request,
-    signature: str | None = Header(default=DEEPIDV_WEBHOOK_SECRET, alias="whsec_KH5FMwJzcJKnK0c-u_jjnP1Nx2Z8ZekX"),
+    signature: str | None = Header(default=os.getenv("DEEPIDV_WEBHOOK_SECRET"), alias=os.getenv("DEEPDIV_WEBHOOK_KEY")),
 ):
     print("webhook endpoints: here!")
     webhook_secret = DEEPIDV_WEBHOOK_SECRET
