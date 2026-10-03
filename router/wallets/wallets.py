@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta
 import os
 from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Request, status, WebSocket, WebSocketDisconnect
@@ -8,14 +9,20 @@ from utils.dependencies.auth import get_current_user
 from decimal import Decimal
 from sqlalchemy import func, case, select
 import json
-from models import Wallet, User, WalletType, Settings, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
-from schemas import WalletResponse, DepositRequest, CardPinRequest
+from models import Wallet, User, WalletType, Withdrawal, TransactionDevice, Settings, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
+from schemas import WalletResponse, DepositRequest, CardPinRequest, TransactionPinCreateRequest, TransactionPinSetupRequest, TransactionPinVerifyRequest, WithdrawalAuthorizationRequest
 from dotenv import load_dotenv
 from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money
 from typing import Optional
 from utils.email_config import send_email
 import logging
+from utils.transaction_signature import verify_ed25519_signature
 from utils.websocket_manager import manager
+from secrets import token_urlsafe
+from base64 import b64decode
+
+from nacl.exceptions import BadSignatureError
+from nacl.signing import VerifyKey
 
 logger = logging.getLogger(__name__)
 load_dotenv()
@@ -24,9 +31,6 @@ router = APIRouter(
     prefix="/api/v1",
     tags=["wallets"]
 )
-
-
-
 
 
 
@@ -303,6 +307,499 @@ async def deposit(
         raise HTTPException( status_code=500, detail=f"Deposit failed" )
 
 
+@router.post("/device-registration")
+async def device_registration(
+    data: TransactionPinSetupRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user_id = str(current_user.id)
+
+    try:
+        result = await db.execute(
+            select(TransactionDevice).where(
+                TransactionDevice.user_id == user_id,
+                TransactionDevice.device_id == data.device_id,
+            )
+        )
+
+        existing_device = result.scalar_one_or_none()
+
+        if existing_device:
+            existing_device.device_name = data.device_name
+            existing_device.public_key = data.public_key
+
+            if existing_device.status == "REVOKED":
+                existing_device.status = "ACTIVE"
+                existing_device.revoked_at = None
+
+            await db.commit()
+
+            return {
+                "message": "Transaction device synchronized successfully.",
+                "device_id": existing_device.device_id,
+                "status": existing_device.status,
+            }
+
+        device = TransactionDevice(
+            id=str(uuid4()),
+            user_id=user_id,
+            device_id=data.device_id,
+            device_name=data.device_name,
+            public_key=data.public_key,
+            status="ACTIVE",
+        )
+
+        db.add(device)
+
+        await db.commit()
+
+        return {
+            "message": "Transaction device registered successfully.",
+            "device_id": device.device_id,
+            "status": "ACTIVE",
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except Exception:
+        await db.rollback()
+
+        logger.exception(
+            f"Transaction device registration error for user {user_id}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to register transaction device.",
+        )
+
+    
+
+@router.post("/transaction-pin")
+async def create_transaction_pin(
+    data: TransactionPinCreateRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    user_id = str(current_user.id)
+
+    try:
+        # --------------------------------------------------
+        # 1. Get account settings
+        # --------------------------------------------------
+        settings_result = await db.execute(
+            select(Settings).where(
+                Settings.user_id == user_id
+            )
+        )
+
+        settings = settings_result.scalar_one_or_none()
+
+        if not settings:
+            raise HTTPException(
+                status_code=404,
+                detail="User settings not found.",
+            )
+
+        # --------------------------------------------------
+        # 2. Verify that this device belongs to the user
+        #    and is active
+        # --------------------------------------------------
+        device_result = await db.execute(
+            select(TransactionDevice).where(
+                TransactionDevice.user_id == user_id,
+                TransactionDevice.device_id == data.device_id,
+                TransactionDevice.status == "ACTIVE",
+            )
+        )
+
+        device = device_result.scalar_one_or_none()
+      
+        if not device:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "This device is not registered or "
+                    "is not active for transaction security."
+                ),
+            )
+
+        # --------------------------------------------------
+        # 3. Validate PIN
+        # --------------------------------------------------
+        if not Settings.is_valid_pin(
+            data.transaction_pin
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "Transaction PIN must contain "
+                    "exactly 4 digits."
+                ),
+            )
+       
+
+        # --------------------------------------------------
+        # 5. Hash and store PIN
+        # --------------------------------------------------
+        settings.transaction_pin_hash = (
+            Settings.hash_pin(
+                data.transaction_pin
+            )
+        )
+
+        settings.transaction_pin_enabled = True
+        settings.transaction_pin_changed_at = (
+            datetime.utcnow()
+        )
+
+        # Track device usage
+        device.last_used_at = datetime.utcnow()
+
+        await db.commit()
+
+        return {
+            "message": (
+                "Transaction PIN created successfully"
+            ),
+            "enabled": True,
+            "device_id": device.device_id,
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except Exception as e:
+        await db.rollback()
+
+        logger.exception(
+            "Transaction PIN creation error "
+            f"for user {user_id}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Unable to create transaction PIN. {e}",
+        )    
+
+
+@router.post("/transaction-pin/verify")
+async def verify_transaction_pin(
+    data: TransactionPinVerifyRequest,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # 1. Get the user's active transaction device
+    result = await db.execute(
+        select(TransactionDevice).where(
+            TransactionDevice.user_id == current_user.id,
+            TransactionDevice.device_id == data.device_id,
+            TransactionDevice.status == "ACTIVE",
+        )
+    )
+
+    device = result.scalar_one_or_none()
+
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Active transaction device not found",
+        )
+
+    # 2. Validate timestamp to prevent replay attacks
+    now = int(datetime.utcnow().timestamp())
+
+    if abs(now - data.timestamp) > 60:
+        raise HTTPException(
+            status_code=400,
+            detail="Transaction authorization has expired",
+        )
+
+    # 3. Reconstruct the exact message
+    message = (
+        f"transaction_id:{data.transaction_id}"
+        f"|amount:{data.amount}"
+        f"|currency:{data.currency}"
+        f"|timestamp:{data.timestamp}"
+    )
+
+    # 4. Verify Ed25519 signature
+    is_valid = verify_ed25519_signature(
+        public_key_base64=device.public_key,
+        signature_base64=data.signature,
+        message=message,
+    )
+
+    if not is_valid:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid transaction authorization",
+        )
+
+    return {
+        "message": "Transaction PIN verified successfully",
+        "verified": True,
+    }
+
+
+
+@router.post("/transfer/{withdrawal_id}/authorize")
+async def authorize_withdrawal(
+    withdrawal_id: str,
+    payload: WithdrawalAuthorizationRequest,
+    db: AsyncSession = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    user_id = str(user.id)
+
+    try:
+        # 1. Find withdrawal belonging to current user
+        result = await db.execute(
+            select(WithdrawalIntent)
+            .where(
+                WithdrawalIntent.id == withdrawal_id,
+                WithdrawalIntent.user_id == user_id,
+            )
+            .with_for_update()
+        )
+
+        withdrawal = result.scalar_one_or_none()
+
+        if not withdrawal:
+            raise HTTPException(
+                status_code=404,
+                detail="Withdrawal not found",
+            )
+
+        # 2. Must still be pending verification
+        if withdrawal.status != TransactionStatus.PENDING:
+            raise HTTPException(
+                status_code=400,
+                detail="Withdrawal is not awaiting authorization.",
+            )
+
+        # 3. Challenge must exist
+        if not withdrawal.challenge:
+            raise HTTPException(
+                status_code=400,
+                detail="Withdrawal challenge not found.",
+            )
+
+        # 4. Challenge must not have been used
+        if withdrawal.challenge_used_at:
+            raise HTTPException(
+                status_code=400,
+                detail="Withdrawal challenge has already been used.",
+            )
+
+        # 5. Challenge must not be expired
+        if (
+            not withdrawal.challenge_expires_at
+            or datetime.utcnow()
+            > withdrawal.challenge_expires_at
+        ):
+            withdrawal.status = TransactionStatus.FAILED
+
+            wallet_result = await db.execute(
+                select(Wallet)
+                .where(
+                    Wallet.id == withdrawal.wallet_id
+                )
+                .with_for_update()
+            )
+
+            wallet = wallet_result.scalar_one()
+
+            amount = Decimal(
+                str(withdrawal.amount)
+            )
+
+            wallet.locked_balance -= amount
+
+            await db.commit()
+
+            raise HTTPException(
+                status_code=400,
+                detail="Withdrawal authorization has expired.",
+            )
+
+        # 6. Find registered transaction device
+        device_result = await db.execute(
+            select(TransactionDevice)
+            .where(
+                TransactionDevice.device_id
+                == payload.device_id,
+                TransactionDevice.user_id
+                == user_id,
+            )
+        )
+
+        device = device_result.scalar_one_or_none()
+
+        if not device:
+            raise HTTPException(
+                status_code=403,
+                detail="Transaction device not registered.",
+            )
+
+        # Get settings
+        settings_result = await db.execute(
+            select(Settings).where(
+                Settings.user_id == user_id
+            )
+        )
+
+        settings = settings_result.scalar_one_or_none()
+
+        if not settings:
+            raise HTTPException(
+                status_code=404,
+                detail="User settings not found.",
+            )
+
+        if not settings.transaction_pin_enabled:
+            raise HTTPException(
+                status_code=400,
+                detail="Transaction PIN is not enabled.",
+            )
+
+        if not settings.verify_pin(
+            payload.transaction_pin
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid transaction PIN.",
+            )
+        
+        try:
+            public_key = b64decode(
+                device.public_key
+            )
+
+            signature = b64decode(
+                payload.signature
+            )
+
+        except Exception:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid signature encoding.",
+            )
+
+        # 9. Verify Ed25519 signature
+        try:
+            verify_key = VerifyKey(public_key)
+
+            verify_key.verify(
+                withdrawal.challenge.encode("utf-8"),
+                signature,
+            )
+
+        except BadSignatureError:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid transaction signature.",
+            )
+
+        # 10. Mark challenge as used
+        withdrawal.challenge_used_at = datetime.utcnow()
+
+        withdrawal.transaction_device_id = device.id
+
+        # 11. Find transaction
+        tx_result = await db.execute(
+            select(Transaction).where(
+                Transaction.reference
+                == withdrawal.reference
+            )
+        )
+
+        tx = tx_result.scalar_one_or_none()
+
+        if not tx:
+            raise HTTPException(
+                status_code=404,
+                detail="Transaction record not found.",
+            )
+
+        # 12. Initiate actual bank transfer
+        transfer_response = await initiate_bank_transfer(
+            account_number=withdrawal.account_number,
+            bank_code=withdrawal.bank_code,
+            amount=float(withdrawal.amount),
+            source_currency=withdrawal.currency,
+            destination_currency=withdrawal.currency,
+            reference=withdrawal.reference,
+        )
+
+        provider_status = (
+            transfer_response.get("status")
+            or transfer_response
+            .get("data", {})
+            .get("status")
+        )
+
+        provider_status = str(
+            provider_status
+        ).lower()
+
+        if provider_status not in [
+            "success",
+            "completed",
+            "queued",
+            "pending",
+        ]:
+            raise Exception(
+                f"Transfer rejected: {transfer_response}"
+            )
+
+        # 13. Mark as processing
+        withdrawal.status = (
+            TransactionStatus.PROCESSING
+        )
+
+        tx.status = (
+            TransactionStatus.PROCESSING
+        )
+
+        withdrawal.provider_reference = (
+            transfer_response
+            .get("data", {})
+            .get("id")
+        )
+
+        await db.commit()
+
+        return {
+            "status": "success",
+            "message": (
+                "Withdrawal authorized and "
+                "transfer initiated."
+            ),
+            "withdrawal_id": withdrawal.id,
+            "reference": withdrawal.reference,
+            "provider_status": provider_status,
+        }
+
+    except HTTPException:
+        await db.rollback()
+        raise
+
+    except Exception as e:
+        await db.rollback()
+
+        logger.exception(
+            f"Withdrawal authorization error for user {user_id}"
+        )
+
+        raise HTTPException(
+            status_code=500,
+            detail="Unable to authorize withdrawal.",
+        )
 
 
 
@@ -312,186 +809,137 @@ async def transfer_funds(
     bank_code: str,
     currency: str,
     amount: float,
-    transaction_pin: str,
     db: AsyncSession = Depends(get_db),
-    user: User = Depends(get_current_user)
+    user: User = Depends(get_current_user),
 ):
+    # Capture primitive values before any commit/rollback
+    user_id = str(user.id)
+
     reference = f"WTH-{uuid4()}"
+    withdrawal_id = str(uuid4())
+
     amount_dec = Decimal(str(amount))
 
     try:
         result = await db.execute(
-                select(Settings).where(
-                    Settings.user_id == user.id
-                )
-            )
-        
-        settings = result.scalar_one_or_none()
-    
-        if not settings:
-            raise HTTPException(
-                status_code=404,
-                detail="User settings not found",
-            )
-
-        validate = settings.verify_transaction_pin(transaction_pin)
-
-        if(not validate):
-            raise HTTPException(
-                status_code=401,
-                detail="Invalid transaction PIN",
-            )
-        
-
-        if not validate:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid transaction PIN",
-            )
-        
-        result = await db.execute(
             select(Wallet).where(
-                Wallet.user_id == user.id,
-                Wallet.currency == currency
+                Wallet.user_id == user_id,
+                Wallet.currency == currency,
             )
         )
 
         wallet = result.scalar_one_or_none()
 
         if not wallet:
-            raise HTTPException(404, "Wallet not found")
-
-        current_balance = wallet.balance or Decimal("0")
-        current_locked = wallet.locked_balance or Decimal("0")
-        available_balance = current_balance - current_locked
+            raise HTTPException(
+                status_code=404,
+                detail="Wallet not found",
+            )
 
         if amount_dec <= 0:
             raise HTTPException(
                 status_code=400,
-                detail="Amount must be greater than zero"
+                detail="Amount must be greater than zero",
             )
+
+        current_balance = wallet.balance or Decimal("0")
+        current_locked = wallet.locked_balance or Decimal("0")
+
+        available_balance = (
+            current_balance - current_locked
+        )
 
         if available_balance < amount_dec:
             raise HTTPException(
                 status_code=400,
-                detail=f"Insufficient balance. Available: {available_balance} {currency}"
+                detail=(
+                    f"Insufficient balance. "
+                    f"Available: {available_balance} {currency}"
+                ),
             )
 
         # Lock funds
         await Wallet.lock_balance(
-            db,
-            wallet.id,
-            amount_dec
+            db=db,
+            wallet_id=wallet.id,
+            amount=amount_dec,
         )
 
+        # Generate one-time challenge
+        challenge = token_urlsafe(32)
+
+        challenge_expires_at = (
+            datetime.utcnow() + timedelta(minutes=2)
+        )
+
+        # Create withdrawal intent
         intent = WithdrawalIntent(
-            id=str(uuid4()),
-            user_id=user.id,
+            id=withdrawal_id,
+            user_id=user_id,
             wallet_id=wallet.id,
             reference=reference,
             amount=amount_dec,
             currency=currency,
             account_number=account_number,
             bank_code=bank_code,
-            status=TransactionStatus.PENDING
+            status=TransactionStatus.PENDING,
+            challenge=challenge,
+            challenge_expires_at=challenge_expires_at,
         )
 
         db.add(intent)
-        await db.flush()
 
-
+        # Create transaction
         tx = Transaction(
-        id=str(uuid4()),
-        header=TransactionHeader.WALLET_WITHDRAW.value,
-        description="Wallet withdrawal",
-        from_user_id=user.id,
-        to_user_id=user.id,
-        type=TransactionType.WITHDRAWAL,
-        status=TransactionStatus.PROCESSING,
-        from_currency=currency,
-        to_currency=currency,
-        from_amount=amount_dec,
-        to_amount=amount_dec,
-        reference=reference,
-    )
+            id=str(uuid4()),
+            header=TransactionHeader.WALLET_WITHDRAW.value,
+            description="Wallet withdrawal",
+            from_user_id=user_id,
+            to_user_id=user_id,
+            type=TransactionType.WITHDRAWAL,
+            status=TransactionStatus.PENDING,
+            from_currency=currency,
+            to_currency=currency,
+            from_amount=amount_dec,
+            to_amount=amount_dec,
+            reference=reference,
+        )
 
         db.add(tx)
+
+        # Make sure INSERTs happen before commit
         await db.flush()
 
-        try:
-            transfer_response = await initiate_bank_transfer(
-                account_number=account_number,
-                bank_code=bank_code,
-                amount=float(amount_dec),
-                source_currency=currency,
-                destination_currency=currency,
-                reference=reference
-            )
+        await db.commit()
 
-            status = (
-                transfer_response.get("status")
-                or transfer_response.get("data", {}).get("status")
-            )
-
-            if str(status).lower() in [
-                "success",
-                "completed",
-                "queued",
-                "pending"
-            ]:
-
-
-                intent.status = TransactionStatus.PROCESSING
-
-                intent.provider_reference = (
-                    transfer_response
-                    .get("data", {})
-                    .get("id")
-                )
-
-                await db.commit()
-
-                return {
-                    "status": "success",
-                    "reference": reference,
-                    "transfer_response": transfer_response,
-                    "available_balance": float(
-                        wallet.balance - wallet.locked_balance
-                    )
-                }
-
-            else:
-                raise Exception(
-                    f"Transfer rejected: {transfer_response}"
-                )
-
-        except Exception as transfer_error:
-
-            # Unlock funds
-            wallet.locked_balance -= amount_dec
-
-            intent.status = TransactionStatus.FAILED
-
-            await db.commit()
-
-            raise HTTPException(
-                status_code=400,
-                detail=f"Transfer failed: {str(transfer_error)}"
-            )
+        # Do NOT access intent.id after commit
+        # Use the local primitive variables instead
+        return {
+            "status": "pending_verification",
+            "withdrawal_id": withdrawal_id,
+            "reference": reference,
+            "challenge": challenge,
+            "expires_in": 120,
+            "amount": float(amount_dec),
+            "currency": currency,
+        }
 
     except HTTPException:
+        await db.rollback()
         raise
 
     except Exception as e:
         await db.rollback()
 
+        print("WITHDRAWAL ERROR:", str(e))
+
         logger.exception(
-            f"Withdrawal error for user {user.id}"
+            f"Withdrawal creation error for user {user_id}"
         )
 
         raise HTTPException(
             status_code=500,
-            detail="Internal server error"
+            detail="Internal server error",
         )
 
 

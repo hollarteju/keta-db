@@ -3,8 +3,8 @@ import datetime
 from fastapi import APIRouter, HTTPException, status, Depends, Header, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
-from models import User, Settings, KYCVerification, TransactionPinHistory
-from schemas import UserSettingsResponse, UserSettingsUpdate, AuthenticatorVerifyRequest, KYCStartRequest
+from models import User, Settings, KYCVerification, TransactionPinHistory, WithdrawalAuthorizationChallenge
+from schemas import UserSettingsResponse, UserSettingsUpdate, AuthenticatorVerifyRequest,  CreateWithdrawalChallengeRequest, CreateWithdrawalChallengeResponse
 from database import get_db
 from utils.dependencies.auth import get_current_user
 import pyotp
@@ -14,6 +14,7 @@ import base64
 import os
 import httpx
 from datetime import datetime
+
 
 
 router = APIRouter(

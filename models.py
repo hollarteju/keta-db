@@ -215,6 +215,12 @@ class User(Base):
     cascade="all, delete-orphan",
 )
 
+    transaction_devices = relationship(
+    "TransactionDevice",
+    back_populates="user",
+    cascade="all, delete-orphan",
+)
+
     def is_valid_password(pw: str) -> bool:
         return bool(re.fullmatch(r"\d{6}", pw))
 
@@ -587,7 +593,23 @@ class WithdrawalIntent(Base):
     status = Column(Enum(TransactionStatus), default=TransactionStatus.PENDING)
 
     flutterwave_response = Column(JSON, nullable=True)
+    challenge = Column(Text, nullable=True)
 
+    challenge_expires_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    challenge_used_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    transaction_device_id = Column(
+        Integer,
+        ForeignKey("transaction_devices.id"),
+        nullable=True,
+    )
     created_at = Column(DateTime(timezone=True), default=func.now())
 
 
@@ -925,10 +947,134 @@ class Settings(Base):
     def is_valid_pin(pw: str) -> bool:
             return bool(re.fullmatch(r"\d{4}", pw))
     
-    def verify_transaction_pin(self, hashed_pin: str) -> bool:
-        return hashed_pin == self.transaction_pin_hash
+    def verify_pin(self, plain_pin: str) -> bool:
+        return pwd_context.verify(plain_pin, self.transaction_pin_hash)
+
+    @staticmethod
+    def hash_pin(pin: str) -> str:
+        return pwd_context.hash(pin)
 
 
+class TransactionDevice(Base):
+    __tablename__ = "transaction_devices"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # Identifier generated and maintained by the mobile app
+    device_id = Column(
+        String(255),
+        nullable=False,
+        index=True,
+    )
+
+    device_name = Column(
+        String(255),
+        nullable=True,
+    )
+
+    # Base64 encoded Ed25519 public key
+    public_key = Column(
+        Text,
+        nullable=False,
+    )
+
+    # ACTIVE / REVOKED
+    status = Column(
+        String(20),
+        nullable=False,
+        default="ACTIVE",
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+
+    last_used_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    revoked_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    user = relationship(
+        "User",
+        back_populates="transaction_devices",
+    )
+
+
+class WithdrawalAuthorizationChallenge(Base):
+    __tablename__ = "withdrawal_authorization_challenges"
+
+    id = Column(
+        Integer,
+        primary_key=True,
+        index=True,
+    )
+
+    user_id = Column(
+        String(36),
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    withdrawal_id = Column(
+        String(36),
+        nullable=False,
+        index=True,
+    )
+
+    device_id = Column(
+        Integer,
+        ForeignKey("transaction_devices.id"),
+        nullable=False,
+        index=True,
+    )
+
+    # Random challenge nonce
+    nonce = Column(
+        String(255),
+        nullable=False,
+        unique=True,
+        index=True,
+    )
+
+    # Exact message the mobile device must sign.
+    # Stored so the backend does not trust a message
+    # returned by the client.
+    challenge_message = Column(
+        Text,
+        nullable=False,
+    )
+
+    expires_at = Column(
+        DateTime,
+        nullable=False,
+    )
+
+    used_at = Column(
+        DateTime,
+        nullable=True,
+    )
+
+    created_at = Column(
+        DateTime,
+        default=datetime.utcnow,
+        nullable=False,
+    )
+    
 class TransactionPinHistory(Base):
     __tablename__ = "transaction_pin_history"
 

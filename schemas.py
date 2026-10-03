@@ -724,10 +724,53 @@ class AuthenticatorVerifyRequest(BaseModel):
 class KYCStartRequest(BaseModel):
     reference_id: str
 
+class TransactionPinCreateRequest(BaseModel):
+    transaction_pin: str = Field(
+        ...,
+        min_length=4,
+        max_length=4,
+        pattern=r"^\d{4}$",
+        description="4-digit transaction PIN",
+    )
+
+    device_id: str = Field(
+        ...,
+        min_length=1,
+        description="Registered transaction device ID",
+    )
+class TransactionPinSetupRequest(BaseModel):
+    device_id: str = Field(
+        min_length=1,
+        max_length=255,
+    )
+
+    device_name: str | None = Field(
+        default=None,
+        max_length=255,
+    )
+
+    public_key: str = Field(
+        min_length=1,
+    )
+
+class TransactionPinVerifyRequest(BaseModel):
+    device_id: str
+    transaction_id: str
+    amount: str
+    currency: str
+    timestamp: int
+    signature: str
+    transaction_pin: str = Field(
+        ...,
+        min_length=4,
+        max_length=4,
+        pattern=r"^\d{4}$",
+        description="4-digit transaction PIN",
+    )
 
 class CreateTransactionPinRequest(BaseModel):
-    pin: str = Field(..., min_length=6, max_length=6)
-    confirm_pin: str = Field(..., min_length=6, max_length=6)
+    pin: str = Field(..., min_length=4, max_length=4)
+    confirm_pin: str = Field(..., min_length=4, max_length=4)
 
     @field_validator("pin", "confirm_pin")
     @classmethod
@@ -741,3 +784,43 @@ class CreateTransactionPinRequest(BaseModel):
 class TransactionPinResponse(BaseModel):
     message: str
     enabled: bool
+
+
+
+class RegisterTransactionDeviceResponse(BaseModel):
+    message: str
+    device_id: str
+    enabled: bool
+
+
+class CreateWithdrawalChallengeRequest(BaseModel):
+    withdrawal_id: str
+
+
+class CreateWithdrawalChallengeResponse(BaseModel):
+    challenge_id: int
+    withdrawal_id: str
+    challenge: str
+    expires_at: str
+
+
+class AuthorizeWithdrawalRequest(BaseModel):
+    device_id: str
+    signature: str
+
+
+class AuthorizeWithdrawalResponse(BaseModel):
+    message: str
+    authorized: bool
+
+
+class WithdrawalAuthorizationRequest(BaseModel):
+    device_id: str
+    signature: str
+    transaction_pin: str = Field(
+            ...,
+            min_length=4,
+            max_length=4,
+            pattern=r"^\d{4}$",
+            description="4-digit transaction PIN",
+        )
