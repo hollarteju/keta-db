@@ -381,10 +381,6 @@ class UserStatistics(BaseModel):
 
 # Main response schema
 class UserProfileResponse(BaseModel):
-    """
-    Enhanced user profile response with transaction history, 
-    quick contacts, and wallet information
-    """
     
     # Basic user information
     id: str = Field(..., description="User's unique identifier (UUID)")
@@ -418,16 +414,16 @@ class UserProfileResponse(BaseModel):
     )
 
     # Quick transaction contacts (5 recent unique users)
-    quick_transaction_contacts: List[QuickTransactionUser] = Field(
-        default_factory=list,
-        description="List of frequently transacted users (maximum 5, most recent first)"
-    )
+    # quick_transaction_contacts: List[QuickTransactionUser] = Field(
+    #     default_factory=list,
+    #     description="List of frequently transacted users (maximum 5, most recent first)"
+    # )
 
     # Statistics
-    statistics: UserStatistics = Field(
-        ...,
-        description="User transaction and wallet statistics"
-    )
+    # statistics: UserStatistics = Field(
+    #     ...,
+    #     description="User transaction and wallet statistics"
+    # )
 
     class Config:
         from_attributes = True
@@ -507,26 +503,26 @@ class UserProfileResponse(BaseModel):
                         }
                     }
                 ],
-                "quick_transaction_contacts": [
-                    {
-                        "id": "user-uuid-2",
-                        "full_name": "Jane Smith",
-                        "profile_pic": "https://example.com/jane.jpg",
-                        "email": "jane.smith@example.com"
-                    },
-                    {
-                        "id": "user-uuid-3",
-                        "full_name": "Bob Johnson",
-                        "profile_pic": "https://example.com/bob.jpg",
-                        "email": "bob.johnson@example.com"
-                    }
-                ],
-                "statistics": {
-                    "total_transactions": 45,
-                    "completed_transactions": 38,
-                    "pending_transactions": 5,
-                    "total_wallets": 2
-                }
+                # "quick_transaction_contacts": [
+                #     {
+                #         "id": "user-uuid-2",
+                #         "full_name": "Jane Smith",
+                #         "profile_pic": "https://example.com/jane.jpg",
+                #         "email": "jane.smith@example.com"
+                #     },
+                #     {
+                #         "id": "user-uuid-3",
+                #         "full_name": "Bob Johnson",
+                #         "profile_pic": "https://example.com/bob.jpg",
+                #         "email": "bob.johnson@example.com"
+                #     }
+                # ],
+                # "statistics": {
+                #     "total_transactions": 45,
+                #     "completed_transactions": 38,
+                #     "pending_transactions": 5,
+                #     "total_wallets": 2
+                # }
             }
         }
 

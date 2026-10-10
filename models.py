@@ -61,15 +61,42 @@ class WalletType(PyEnum):
 
 
 class CurrencyType(PyEnum):
+    # African currencies
     NAIRA = "NGN"
+    RAND = "ZAR"
+    CEDI = "GHS"
+    KENYAN_SHILLING = "KES"
+    EGYPTIAN_POUND = "EGP"
+    WEST_AFRICAN_CFA = "XOF"
+    CENTRAL_AFRICAN_CFA = "XAF"
+
+    # Major international currencies
     DOLLAR = "USD"
+    EURO = "EUR"
+    POUND = "GBP"
+    # YEN = "JPY"
+    # CANADIAN_DOLLAR = "CAD"
+    # AUSTRALIAN_DOLLAR = "AUD"
 
 
 class CurrencySymbol:
     CURRENCY_SYMBOL = {
         CurrencyType.NAIRA: "₦",
-        CurrencyType.DOLLAR: "$"
+        CurrencyType.RAND: "R",
+        CurrencyType.CEDI: "GH₵",
+        CurrencyType.KENYAN_SHILLING: "KSh",
+        CurrencyType.EGYPTIAN_POUND: "E£",
+        CurrencyType.WEST_AFRICAN_CFA: "CFA",
+        CurrencyType.CENTRAL_AFRICAN_CFA: "FCFA",
+        CurrencyType.DOLLAR: "$",
+        CurrencyType.EURO: "€",
+        CurrencyType.POUND: "£",
+        # CurrencyType.YEN: "¥",
+        # CurrencyType.CANADIAN_DOLLAR: "C$",
+        # CurrencyType.AUSTRALIAN_DOLLAR: "A$",
     }
+
+
 
 
 class KYCStatus(PyEnum):

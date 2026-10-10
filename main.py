@@ -7,7 +7,7 @@ from router.websocket_connection import router as websocket_router
 from dotenv import load_dotenv
 import os
 import httpx
-from router.auth import register, verify_account, resend_code, forgotten_password, update_company, login
+from router.auth import register, verify_account, resend_code, forgotten_password, login
 from router.exchange_rate import rate 
 from router.wallets import wallets
 from router.refresh_token import refresh_token
@@ -37,7 +37,6 @@ app.include_router(login.router)
 app.include_router(resend_code.router)
 app.include_router(verify_account.router)
 app.include_router(forgotten_password.router)
-app.include_router(update_company.router)
 app.include_router(refresh_token.router)
 app.include_router(wallets.router)
 app.include_router(rate.router)

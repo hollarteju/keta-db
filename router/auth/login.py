@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from router.auth.register import ensure_default_wallets
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models import User, Wallet, LedgerEntry, TransactionStatus, Transaction, CurrencySymbol, CurrencyType, TransactionDirection
@@ -55,7 +56,23 @@ router = APIRouter(
     tags=["users"]
 )
 
+async def ensure_wallets_for_all_users(
+    db
+):
+    result = await db.execute(
+        select(User.id)
+    )
 
+    user_ids = result.scalars().all()
+
+    for user_id in user_ids:
+        await ensure_default_wallets(
+            db=db,
+            user_id=str(user_id),
+        )
+
+    await db.commit()
+    
 @router.post("/user/login", response_model=Token)
 async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depends(get_db)):
    
@@ -66,8 +83,6 @@ async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depen
     result = await db.execute(payload)
     user = result.scalar_one_or_none()
     
-    access_token = create_access_token({"sub": str(user.id)})
-    refresh_token = create_refresh_token(data={"sub": str(user.id)})
 
     if not user:
         raise HTTPException(
@@ -83,6 +98,10 @@ async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depen
             headers={"WWW-Authenticate": "Bearer"}
         )
 
+    access_token = create_access_token({"sub": str(user.id)})
+    refresh_token = create_refresh_token(data={"sub": str(user.id)})
+    
+    await ensure_wallets_for_all_users(db)
     if not user.verified_email:
         token = f"{random.randrange(10**5):05}"
         token_expires_at = datetime.utcnow() + timedelta(minutes=10)
@@ -92,8 +111,11 @@ async def login_for_access_token(requests: LoginScheme, db: AsyncSession = Depen
 
         await db.commit()
         await  send_email(user.email, str(token), "keta-sign-up")
-
-
+        await ensure_default_wallets(
+                    db=db,
+                    user_id=str(user.id),
+                )
+        
         return Token(
         access_token=access_token, 
         refresh_token=refresh_token,
@@ -126,7 +148,7 @@ async def get_me(
 
 
 
-@router.get("/me", response_model=UserProfileResponse)
+@router.get("/me")
 async def get_me(
     user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
@@ -202,7 +224,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
             )
         )
         .order_by(desc(Transaction.created_at))
-        .limit(10)
+        .limit(5)
     )
     transactions = transaction_result.scalars().all()
 
@@ -231,76 +253,76 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
         for date, items in grouped.items()
     ]
 
-    # 👥 Quick transaction contacts
-    quick_contacts_result = await db.execute(
-        select(User)
-        .join(
-            Transaction,
-            or_(
-                Transaction.from_user_id == User.id,
-                Transaction.to_user_id == User.id
-            )
-        )
-        .where(
-            or_(
-                Transaction.from_user_id == user_id,
-                Transaction.to_user_id == user_id
-            ),
-            User.id != user_id,
-            Transaction.status == TransactionStatus.COMPLETED
-        )
-        .group_by(User.id)
-        .order_by(desc(func.max(Transaction.created_at)))
-        .limit(5)
-    )
-    quick_contacts_users = quick_contacts_result.scalars().all()
+    # # 👥 Quick transaction contacts
+    # quick_contacts_result = await db.execute(
+    #     select(User)
+    #     .join(
+    #         Transaction,
+    #         or_(
+    #             Transaction.from_user_id == User.id,
+    #             Transaction.to_user_id == User.id
+    #         )
+    #     )
+    #     .where(
+    #         or_(
+    #             Transaction.from_user_id == user_id,
+    #             Transaction.to_user_id == user_id
+    #         ),
+    #         User.id != user_id,
+    #         Transaction.status == TransactionStatus.COMPLETED
+    #     )
+    #     .group_by(User.id)
+    #     .order_by(desc(func.max(Transaction.created_at)))
+    #     .limit(5)
+    # )
+    # quick_contacts_users = quick_contacts_result.scalars().all()
 
-    quick_transaction_contacts = [
-        {
-            "id": contact.id,
-            "first_name": contact.first_name,
-            "last_name": contact.last_name,
-            "profile_pic": contact.profile_pic,
-            "email": contact.email,
-        }
-        for contact in quick_contacts_users
-    ]
+    # quick_transaction_contacts = [
+    #     {
+    #         "id": contact.id,
+    #         "first_name": contact.first_name,
+    #         "last_name": contact.last_name,
+    #         "profile_pic": contact.profile_pic,
+    #         "email": contact.email,
+    #     }
+    #     for contact in quick_contacts_users
+    # ]
 
-    # 📊 Statistics
-    total_tx_result = await db.execute(
-        select(func.count(Transaction.id))
-        .where(
-            or_(
-                Transaction.from_user_id == user_id,
-                Transaction.to_user_id == user_id
-            )
-        )
-    )
-    total_transactions = total_tx_result.scalar_one()
+    # # 📊 Statistics
+    # total_tx_result = await db.execute(
+    #     select(func.count(Transaction.id))
+    #     .where(
+    #         or_(
+    #             Transaction.from_user_id == user_id,
+    #             Transaction.to_user_id == user_id
+    #         )
+    #     )
+    # )
+    # total_transactions = total_tx_result.scalar_one()
 
-    completed_tx_result = await db.execute(
-        select(func.count(Transaction.id))
-        .where(
-            or_(
-                Transaction.from_user_id == user_id,
-                Transaction.to_user_id == user_id
-            ),
-            Transaction.status == TransactionStatus.COMPLETED
-        )
-    )
-    completed_transactions = completed_tx_result.scalar_one()
+    # completed_tx_result = await db.execute(
+    #     select(func.count(Transaction.id))
+    #     .where(
+    #         or_(
+    #             Transaction.from_user_id == user_id,
+    #             Transaction.to_user_id == user_id
+    #         ),
+    #         Transaction.status == TransactionStatus.COMPLETED
+    #     )
+    # )
+    # completed_transactions = completed_tx_result.scalar_one()
 
-    pending_tx_result = await db.execute(
-        select(func.count(Transaction.id))
-        .where(
-            or_(
-                Transaction.from_user_id == user_id,
-                Transaction.to_user_id == user_id
-            ),
-            Transaction.status == TransactionStatus.PENDING
-        )
-    )
-    pending_transactions = pending_tx_result.scalar_one()
+    # pending_tx_result = await db.execute(
+    #     select(func.count(Transaction.id))
+    #     .where(
+    #         or_(
+    #             Transaction.from_user_id == user_id,
+    #             Transaction.to_user_id == user_id
+    #         ),
+    #         Transaction.status == TransactionStatus.PENDING
+    #     )
+    # )
+    # pending_transactions = pending_tx_result.scalar_one()
 
     return {
         # Basic user info
@@ -328,13 +350,13 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
 
         # Transactions
         "recent_transactions": recent_transactions,
-        "quick_transaction_contacts": quick_transaction_contacts,
+        # "quick_transaction_contacts": quick_transaction_contacts,
 
         # Statistics
         "statistics": {
-            "total_transactions": total_transactions,
-            "completed_transactions": completed_transactions,
-            "pending_transactions": pending_transactions,
+            # "total_transactions": total_transactions,
+            # "completed_transactions": completed_transactions,
+            # "pending_transactions": pending_transactions,
             "total_wallets": len(wallets),
         },
     }
@@ -363,32 +385,7 @@ async def update_me(
     if payload.country_code is not None:
         user.country_code = payload.country_code
 
-    # if payload.usd_locked_balance is not None:
-    #     usd_wallet = await db.scalar(
-    #         select(Wallet).where(
-    #             Wallet.user_id == user.id,
-    #             Wallet.currency == "USD",
-    #         )
-    #     )
-
-    #     if usd_wallet:
-    #         usd_wallet.locked_balance = payload.usd_locked_balance
-
-    # # Update NGN locked balance
-    # if payload.ngn_locked_balance is not None:
-    #     ngn_wallet = await db.scalar(
-    #         select(Wallet).where(
-    #             Wallet.user_id == user.id,
-    #             Wallet.currency == "NGN",
-    #         )
-    #     )
-
-    #     if ngn_wallet:
-    #         ngn_wallet.locked_balance = payload.ngn_locked_balance
-
-    
-
-    # Save changes
+   
     db.add(user)
     await db.commit()
     await db.refresh(user)

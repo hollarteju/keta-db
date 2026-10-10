@@ -12,7 +12,7 @@ import json
 from models import Wallet, User, WalletType, Withdrawal, TransactionDevice, Settings, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
 from schemas import WalletResponse, DepositRequest, CardPinRequest, TransactionPinCreateRequest, TransactionPinSetupRequest, TransactionPinVerifyRequest, WithdrawalAuthorizationRequest
 from dotenv import load_dotenv
-from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money
+from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money, mobile_network
 from typing import Optional
 from utils.email_config import send_email
 import logging
@@ -187,6 +187,11 @@ async def get_user_wallets(
 
 
 
+@router.get("/mobile-networks")
+async def get_mobile_networks(
+    country: str = "RW",
+):
+    return await mobile_network(country=country)
 
 
 @router.get("/deposit-intents/me")
@@ -487,63 +492,63 @@ async def create_transaction_pin(
         )    
 
 
-@router.post("/transaction-pin/verify")
-async def verify_transaction_pin(
-    data: TransactionPinVerifyRequest,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    # 1. Get the user's active transaction device
-    result = await db.execute(
-        select(TransactionDevice).where(
-            TransactionDevice.user_id == current_user.id,
-            TransactionDevice.device_id == data.device_id,
-            TransactionDevice.status == "ACTIVE",
-        )
-    )
+# @router.post("/transaction-pin/verify")
+# async def verify_transaction_pin(
+#     data: TransactionPinVerifyRequest,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     # 1. Get the user's active transaction device
+#     result = await db.execute(
+#         select(TransactionDevice).where(
+#             TransactionDevice.user_id == current_user.id,
+#             TransactionDevice.device_id == data.device_id,
+#             TransactionDevice.status == "ACTIVE",
+#         )
+#     )
 
-    device = result.scalar_one_or_none()
+#     device = result.scalar_one_or_none()
 
-    if not device:
-        raise HTTPException(
-            status_code=404,
-            detail="Active transaction device not found",
-        )
+#     if not device:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="Active transaction device not found",
+#         )
 
-    # 2. Validate timestamp to prevent replay attacks
-    now = int(datetime.utcnow().timestamp())
+#     # 2. Validate timestamp to prevent replay attacks
+#     now = int(datetime.utcnow().timestamp())
 
-    if abs(now - data.timestamp) > 60:
-        raise HTTPException(
-            status_code=400,
-            detail="Transaction authorization has expired",
-        )
+#     if abs(now - data.timestamp) > 60:
+#         raise HTTPException(
+#             status_code=400,
+#             detail="Transaction authorization has expired",
+#         )
 
-    # 3. Reconstruct the exact message
-    message = (
-        f"transaction_id:{data.transaction_id}"
-        f"|amount:{data.amount}"
-        f"|currency:{data.currency}"
-        f"|timestamp:{data.timestamp}"
-    )
+#     # 3. Reconstruct the exact message
+#     message = (
+#         f"transaction_id:{data.transaction_id}"
+#         f"|amount:{data.amount}"
+#         f"|currency:{data.currency}"
+#         f"|timestamp:{data.timestamp}"
+#     )
 
-    # 4. Verify Ed25519 signature
-    is_valid = verify_ed25519_signature(
-        public_key_base64=device.public_key,
-        signature_base64=data.signature,
-        message=message,
-    )
+#     # 4. Verify Ed25519 signature
+#     is_valid = verify_ed25519_signature(
+#         public_key_base64=device.public_key,
+#         signature_base64=data.signature,
+#         message=message,
+#     )
 
-    if not is_valid:
-        raise HTTPException(
-            status_code=401,
-            detail="Invalid transaction authorization",
-        )
+#     if not is_valid:
+#         raise HTTPException(
+#             status_code=401,
+#             detail="Invalid transaction authorization",
+#         )
 
-    return {
-        "message": "Transaction PIN verified successfully",
-        "verified": True,
-    }
+#     return {
+#         "message": "Transaction PIN verified successfully",
+#         "verified": True,
+#     }
 
 
 

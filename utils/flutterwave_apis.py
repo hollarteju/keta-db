@@ -322,7 +322,19 @@ async def authorize_charge_pin(
     return response
 
 
-
+async def mobile_network(country):
+    async with httpx.AsyncClient() as client:
+        token_data = get_flutterwave_token()
+        access_token = token_data.get("access_token")
+        print(country)
+        resp = await client.get(
+            f"{FLUTTERWAVE_BASE_URL}/mobile-networks?country={country}",
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+        )
+        return resp.json()
 
 async def charge_mobile_money(amount, currency, customer, mobile_money):
     payload = {

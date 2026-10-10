@@ -1,7 +1,7 @@
 from sqlalchemy.future import select
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from models import User
+from models import CurrencyType, User, Wallet, WalletStatus, WalletType
 from schemas import CreateUser, UserResponse, RegisterUserResponse
 from utils.email_config import send_email
 import random
@@ -16,6 +16,70 @@ router = APIRouter(
     prefix="/api/v1",
     tags=["users"]
 )
+
+
+DEFAULT_FIAT_CURRENCIES = [
+    CurrencyType.NAIRA,
+    CurrencyType.WEST_AFRICAN_CFA,
+    CurrencyType.CENTRAL_AFRICAN_CFA,
+    CurrencyType.RAND,
+    CurrencyType.CEDI,
+    CurrencyType.KENYAN_SHILLING,
+    CurrencyType.EGYPTIAN_POUND,
+    CurrencyType.DOLLAR,
+    CurrencyType.EURO,
+    CurrencyType.POUND,
+]
+
+
+async def ensure_default_wallets(
+    db: AsyncSession,
+    user_id: str,
+):
+    currency_values = [
+        currency.value
+        for currency in DEFAULT_FIAT_CURRENCIES
+    ]
+
+    result = await db.execute(
+        select(Wallet).where(
+            Wallet.user_id == user_id,
+            Wallet.currency.in_(currency_values),
+        )
+    )
+
+    existing_wallets = result.scalars().all()
+
+    existing_currencies = {
+        wallet.currency
+        for wallet in existing_wallets
+    }
+
+    missing_currencies = [
+        currency
+        for currency in DEFAULT_FIAT_CURRENCIES
+        if currency.value not in existing_currencies
+    ]
+
+    for currency in missing_currencies:
+        wallet = Wallet(
+            user_id=user_id,
+            currency=currency.value,  # IMPORTANT
+            wallet_type=WalletType.FIAT,
+            balance=Decimal("0"),
+            locked_balance=Decimal("0"),
+            status=WalletStatus.ACTIVE,
+        )
+
+        db.add(wallet)
+
+    return [
+        currency.value
+        for currency in missing_currencies
+    ]
+
+
+
 
 @router.post("/user/register", response_model=Token)
 async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
@@ -45,33 +109,25 @@ async def create_user(user: CreateUser, db: AsyncSession = Depends(get_db)):
 
     # Create new user
     new_user = User(
-        first_name=user.first_name,
-        last_name=user.last_name,
-        email=user.email,
-        password=hashed_password,
-        token=token,
-        token_expires_at=token_expires_at
-    )
+    first_name=user.first_name,
+    last_name=user.last_name,
+    email=user.email,
+    password=hashed_password,
+    token=token,
+    token_expires_at=token_expires_at,
+)
 
     db.add(new_user)
+
+    await db.flush()
+
+    await ensure_default_wallets(
+        db=db,
+        user_id=str(new_user.id),
+    )
+
     await db.commit()
     await db.refresh(new_user)
-
-    # ------------------------
-    # Create USD Wallet
-    # ------------------------
-    from models import Wallet  # make sure your Wallet model is imported
-    usd_wallet = Wallet(
-        user_id=new_user.id,
-        currency="USD",       # or "USD" depending on your model
-        wallet_type="fiat",      # type of wallet
-        balance=Decimal(0),
-        status="active"
-    )
-    db.add(usd_wallet)
-    await db.commit()
-    await db.refresh(usd_wallet)
-    # ------------------------
 
     # Generate tokens
     access_token = create_access_token(data={"sub": str(new_user.id)})
