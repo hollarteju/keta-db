@@ -312,6 +312,8 @@ async def deposit(
         raise HTTPException( status_code=500, detail=f"Deposit failed" )
 
 
+
+
 @router.post("/device-registration")
 async def device_registration(
     data: TransactionPinSetupRequest,
@@ -321,48 +323,93 @@ async def device_registration(
     user_id = str(current_user.id)
 
     try:
+        # Lock the user row to serialize device registrations
+        # for the same user on databases supporting row locks.
+        user_result = await db.execute(
+            select(User)
+            .where(User.id == current_user.id)
+            .with_for_update()
+        )
+        user = user_result.scalar_one_or_none()
+
+        if not user:
+            raise HTTPException(
+                status_code=404,
+                detail="User not found.",
+            )
+
+        # Find the device being registered.
         result = await db.execute(
             select(TransactionDevice).where(
                 TransactionDevice.user_id == user_id,
                 TransactionDevice.device_id == data.device_id,
             )
         )
-
         existing_device = result.scalar_one_or_none()
 
-        if existing_device:
-            existing_device.device_name = data.device_name
-            existing_device.public_key = data.public_key
+        # Do not allow a device ID to silently acquire a different key.
+        if (
+            existing_device
+            and existing_device.public_key != data.public_key
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Device public key mismatch. "
+                    "Device recovery is required."
+                ),
+            )
 
-            if existing_device.status == "REVOKED":
-                existing_device.status = "ACTIVE"
-                existing_device.revoked_at = None
-
-            await db.commit()
-
-            return {
-                "message": "Transaction device synchronized successfully.",
-                "device_id": existing_device.device_id,
-                "status": existing_device.status,
-            }
-
-        device = TransactionDevice(
-            id=str(uuid4()),
-            user_id=user_id,
-            device_id=data.device_id,
-            device_name=data.device_name,
-            public_key=data.public_key,
-            status="ACTIVE",
+        # Find all currently active devices belonging to this user.
+        active_result = await db.execute(
+            select(TransactionDevice).where(
+                TransactionDevice.user_id == user_id,
+                TransactionDevice.status == "ACTIVE",
+            )
         )
+        active_devices = active_result.scalars().all()
 
-        db.add(device)
+        now = datetime.utcnow()
+        revoked_count = 0
 
+        # Revoke every active device except the device being registered.
+        for active_device in active_devices:
+            if (
+                existing_device is None
+                or active_device.id != existing_device.id
+            ):
+                active_device.status = "REVOKED"
+                active_device.revoked_at = now
+                revoked_count += 1
+
+        if existing_device:
+            # Reactivate a previously revoked device, if necessary.
+            existing_device.device_name = data.device_name
+            existing_device.status = "ACTIVE"
+            existing_device.revoked_at = None
+
+            registered_device = existing_device
+
+        else:
+            # Register a device that has not been registered before.
+            registered_device = TransactionDevice(
+                user_id=user_id,
+                device_id=data.device_id,
+                device_name=data.device_name,
+                public_key=data.public_key,
+                status="ACTIVE",
+            )
+
+            db.add(registered_device)
+
+        # Commit revocations and registration together.
         await db.commit()
 
         return {
             "message": "Transaction device registered successfully.",
-            "device_id": device.device_id,
-            "status": "ACTIVE",
+            "device_id": registered_device.device_id,
+            "status": registered_device.status,
+            "previous_devices_revoked": revoked_count,
         }
 
     except HTTPException:
@@ -373,7 +420,8 @@ async def device_registration(
         await db.rollback()
 
         logger.exception(
-            f"Transaction device registration error for user {user_id}"
+            "Transaction device registration error for user %s",
+            user_id,
         )
 
         raise HTTPException(
