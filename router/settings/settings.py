@@ -330,50 +330,50 @@ async def deepidv_webhook(
     return {"received": True}
 
 
-@router.post("/transaction-pin")
-async def create_transaction_pin(
-    transaction_pin: str,
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_user),
-):
-    result = await db.execute(
-        select(Settings).where(
-            Settings.user_id == current_user.id
-        )
-    )
+# @router.post("/transaction-pin")
+# async def create_transaction_pin(
+#     transaction_pin: str,
+#     request: Request,
+#     db: AsyncSession = Depends(get_db),
+#     current_user: User = Depends(get_current_user),
+# ):
+#     result = await db.execute(
+#         select(Settings).where(
+#             Settings.user_id == current_user.id
+#         )
+#     )
 
-    settings = result.scalar_one_or_none()
+#     settings = result.scalar_one_or_none()
 
-    if not settings:
-        raise HTTPException(
-            status_code=404,
-            detail="User settings not found",
-        )
-    # validate = settings.verify_transaction_pin(transaction_pin)
+#     if not settings:
+#         raise HTTPException(
+#             status_code=404,
+#             detail="User settings not found",
+#         )
+#     # validate = settings.verify_transaction_pin(transaction_pin)
 
-    # if not validate:
-    #     raise HTTPException(
-    #         status_code=400,
-    #         detail="Invalid transaction PIN",
-    #     )
+#     # if not validate:
+#     #     raise HTTPException(
+#     #         status_code=400,
+#     #         detail="Invalid transaction PIN",
+#     #     )
 
-    settings.transaction_pin_hash = transaction_pin
-    settings.transaction_pin_enabled = True
-    settings.transaction_pin_changed_at = datetime.utcnow()
+#     settings.transaction_pin_hash = transaction_pin
+#     settings.transaction_pin_enabled = True
+#     settings.transaction_pin_changed_at = datetime.utcnow()
 
-    history = TransactionPinHistory(
-        user_id=current_user.id,
-        action="CREATED",
-        ip_address=request.client.host if request.client else None,
-        reason="Transaction PIN created",
-    )
+#     history = TransactionPinHistory(
+#         user_id=current_user.id,
+#         action="CREATED",
+#         ip_address=request.client.host if request.client else None,
+#         reason="Transaction PIN created",
+#     )
 
-    db.add(history)
+#     db.add(history)
 
-    await db.commit()
+#     await db.commit()
 
-    return {
-        "message": "Transaction PIN created successfully",
-        "enabled": True,
-    }
+#     return {
+#         "message": "Transaction PIN created successfully",
+#         "enabled": True,
+#     }

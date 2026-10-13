@@ -194,6 +194,16 @@ async def get_mobile_networks(
     return await mobile_network(country=country)
 
 
+@router.post("/create_mobile_payment")
+async def create_mobile_payment():
+    response = await charge_mobile_money(
+    phone_number="9012345678",
+    country_code="233",
+    network="MTN"
+)
+    return response
+
+
 @router.get("/deposit-intents/me")
 async def get_my_deposit_intents(
     user: User = Depends(get_current_user),
@@ -810,7 +820,12 @@ async def authorize_withdrawal(
                 f"Transfer rejected: {transfer_response}"
             )
 
-        # 13. Mark as processing
+        await Wallet.lock_balance(
+                    db=db,
+                    wallet_id=wallet.id,
+                    amount= withdrawal.amount,
+        )
+        
         withdrawal.status = (
             TransactionStatus.PROCESSING
         )
@@ -912,11 +927,11 @@ async def transfer_funds(
             )
 
         # Lock funds
-        await Wallet.lock_balance(
-            db=db,
-            wallet_id=wallet.id,
-            amount=amount_dec,
-        )
+        # await Wallet.lock_balance(
+        #     db=db,
+        #     wallet_id=wallet.id,
+        #     amount=amount_dec,
+        # )
 
         # Generate one-time challenge
         challenge = token_urlsafe(32)

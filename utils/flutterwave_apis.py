@@ -335,30 +335,46 @@ async def mobile_network(country):
             }
         )
         return resp.json()
+    
 
-async def charge_mobile_money(amount, currency, customer, mobile_money):
+async def charge_mobile_money(phone_number, network, country_code):
     payload = {
-        "amount": amount,
-        "currency": currency,
-        "reference": str(uuid4()),
-        "payment_method": {
+        # "amount": amount,
+        # "currency": currency,
+        # "reference": str(uuid4()),
+        # "payment_method": {
             "type": "mobile_money",
             "mobile_money": {
-                "phone_number": mobile_money.phone_number,
-                "network": mobile_money.network,
-                "country_code": mobile_money.country_code,
-            },
+                "phone_number": phone_number,
+                "network": network,
+                "country_code": country_code,
+            # },
         },
-        "customer": {
-            "email": customer.email,
-            "name": {"first": customer.first_name, "last": customer.last_name},
-        },
+        # "customer": {
+        #     "email": customer.email,
+        #     "name": {"first": customer.first_name, "last": customer.last_name},
+        # },
     }
-    result = await request_header("post", "/orchestration/direct-charges", payload)
+    result = await request_header("post", "/payment-methods", payload)
     return {
-        "charge_id": result["data"]["id"],
-        "next_action": result["data"].get("next_action"),  # payment_instruction — show "check your phone"
-        "method": "mobile_money",
+        "result": result
+    }
+
+
+async def create_charge_mobile(currency,  payment_method_id, amount, user, reference):
+    customer_id = await create_customer(user.email, user.first_name, user.last_name, country_code, phone_number)
+    payload = {
+                "currency": currency,
+                "payment_method_id": payment_method_id,
+                "customer_id": customer_id,
+                "amount": amount,
+                "reference": reference
+            # },
+        }
+    
+    result = await request_header("post", "/charges", payload)
+    return {
+        "result": result
     }
 
 
