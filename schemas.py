@@ -633,7 +633,7 @@ class DepositRequest(BaseModel):
     amount: float
     currency: str
     card: Optional[CardDetails] = None
-    # mobile_money: Optional[MobileMoneyDetails] = None
+    payment_method_id: Optional[str] = None
     # ussd: Optional[USSDDetails] = None
 
 
