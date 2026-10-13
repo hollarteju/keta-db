@@ -659,10 +659,10 @@ async def authorize_withdrawal(
                 detail="Withdrawal challenge has already been used.",
             )
 
-        # 5. Challenge must not be expired
+        now = datetime.utcnow()
         if (
             not withdrawal.challenge_expires_at
-            or datetime.utcnow()
+            or now
             > withdrawal.challenge_expires_at
         ):
             withdrawal.status = TransactionStatus.FAILED
@@ -825,7 +825,25 @@ async def authorize_withdrawal(
                     wallet_id=wallet.id,
                     amount= withdrawal.amount,
         )
-        
+
+        tx = Transaction(
+            id=str(uuid4()),
+            header=TransactionHeader.WALLET_WITHDRAW.value,
+            description="Wallet withdrawal",
+            from_user_id=user_id,
+            to_user_id=user_id,
+            type=TransactionType.WITHDRAWAL,
+            status=TransactionStatus.PENDING,
+            from_currency=withdrawal.currency,
+            to_currency=withdrawal.currency,
+            from_amount=withdrawal.amount,
+            to_amount=withdrawal.amount,
+            reference=withdrawal.reference,
+        )
+
+        db.add(tx)
+
+
         withdrawal.status = (
             TransactionStatus.PROCESSING
         )
@@ -958,22 +976,22 @@ async def transfer_funds(
         db.add(intent)
 
         # Create transaction
-        tx = Transaction(
-            id=str(uuid4()),
-            header=TransactionHeader.WALLET_WITHDRAW.value,
-            description="Wallet withdrawal",
-            from_user_id=user_id,
-            to_user_id=user_id,
-            type=TransactionType.WITHDRAWAL,
-            status=TransactionStatus.PENDING,
-            from_currency=currency,
-            to_currency=currency,
-            from_amount=amount_dec,
-            to_amount=amount_dec,
-            reference=reference,
-        )
+        # tx = Transaction(
+        #     id=str(uuid4()),
+        #     header=TransactionHeader.WALLET_WITHDRAW.value,
+        #     description="Wallet withdrawal",
+        #     from_user_id=user_id,
+        #     to_user_id=user_id,
+        #     type=TransactionType.WITHDRAWAL,
+        #     status=TransactionStatus.PENDING,
+        #     from_currency=currency,
+        #     to_currency=currency,
+        #     from_amount=amount_dec,
+        #     to_amount=amount_dec,
+        #     reference=reference,
+        # )
 
-        db.add(tx)
+        # db.add(tx)
 
         # Make sure INSERTs happen before commit
         await db.flush()
