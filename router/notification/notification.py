@@ -4,7 +4,7 @@ from sqlalchemy import select, func
 from datetime import datetime
 
 from database import get_db
-from models import Notification, NotificationStatus, User
+from models import Notification, NotificationStatus, NotificationPriority, NotificationType, User
 from utils.dependencies.auth import get_current_user
 
 
@@ -12,6 +12,35 @@ router = APIRouter(
     prefix="/notifications",
     tags=["Notifications"]
 )
+
+
+def create_transaction_notification(
+    *,
+    user_id: str,
+    transaction_type: NotificationType,
+    title: str,
+    message: str,
+    reference: str,
+    reference_id: str | None = None,
+    priority: NotificationPriority = NotificationPriority.NORMAL,
+    action_url: str | None = None,
+) -> Notification:
+    return Notification(
+        user_id=user_id,
+        type=transaction_type,
+        priority=priority,
+        status=NotificationStatus.UNREAD,
+        title=title,
+        message=message,
+        short_message=message[:255],
+        reference_id=reference_id,
+        reference_type=transaction_type.value,
+        action_url=action_url,
+        action_label="View transaction",
+        extra_data={"reference": reference},
+        push_enabled=True,
+        email_enabled=False,
+    )
 
 
 @router.get("/")

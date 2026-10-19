@@ -9,14 +9,12 @@ from utils.dependencies.auth import get_current_user
 from decimal import Decimal
 from sqlalchemy import func, case, select
 import json
-from models import Wallet, User, WalletType, Withdrawal, TransactionDevice, Settings, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType
+from models import Wallet, User, WalletType, Withdrawal, TransactionDevice, Settings, WithdrawalIntent, CurrencyType, WalletStatus, Transaction, TransactionHeader, TransactionStatus, TransactionType, LedgerEntry, DepositIntent, LedgerEntryType, NotificationType, NotificationPriority
 from schemas import WalletResponse, DepositRequest, CardPinRequest, TransactionPinCreateRequest, TransactionPinSetupRequest, TransactionPinVerifyRequest, WithdrawalAuthorizationRequest
 from dotenv import load_dotenv
-from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money, mobile_network
-from typing import Optional
-from utils.email_config import send_email
+from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money, mobile_network, create_charge_mobile
+from notification.notification import create_transaction_notification
 import logging
-from utils.transaction_signature import verify_ed25519_signature
 from utils.websocket_manager import manager
 from secrets import token_urlsafe
 from base64 import b64decode
@@ -195,11 +193,15 @@ async def get_mobile_networks(
 
 
 @router.post("/create_mobile_payment")
-async def create_mobile_payment():
+async def create_mobile_payment(
+    phone_number: str = "9012345678",
+    country_code: str = "233",
+    network: str = "MTN"
+):
     response = await charge_mobile_money(
-    phone_number="9012345678",
-    country_code="233",
-    network="MTN"
+    phone_number=phone_number,
+    country_code=country_code,
+    network=network
 )
     return response
 
@@ -302,6 +304,19 @@ async def deposit(
 
                 return {
                     "method": "bank_transfer",
+                    "data": response
+                }
+
+            case "mobile_money":
+                response = await create_charge_mobile(
+                    currency=payload.currency,
+                    payment_method_id= payload.payment_method_id,
+                    amount=payload.amount,
+                    user=user,
+                    reference=reference
+                )
+                return {
+                    "method": "mobile network",
                     "data": response
                 }
 
@@ -550,63 +565,6 @@ async def create_transaction_pin(
         )    
 
 
-# @router.post("/transaction-pin/verify")
-# async def verify_transaction_pin(
-#     data: TransactionPinVerifyRequest,
-#     db: AsyncSession = Depends(get_db),
-#     current_user: User = Depends(get_current_user),
-# ):
-#     # 1. Get the user's active transaction device
-#     result = await db.execute(
-#         select(TransactionDevice).where(
-#             TransactionDevice.user_id == current_user.id,
-#             TransactionDevice.device_id == data.device_id,
-#             TransactionDevice.status == "ACTIVE",
-#         )
-#     )
-
-#     device = result.scalar_one_or_none()
-
-#     if not device:
-#         raise HTTPException(
-#             status_code=404,
-#             detail="Active transaction device not found",
-#         )
-
-#     # 2. Validate timestamp to prevent replay attacks
-#     now = int(datetime.utcnow().timestamp())
-
-#     if abs(now - data.timestamp) > 60:
-#         raise HTTPException(
-#             status_code=400,
-#             detail="Transaction authorization has expired",
-#         )
-
-#     # 3. Reconstruct the exact message
-#     message = (
-#         f"transaction_id:{data.transaction_id}"
-#         f"|amount:{data.amount}"
-#         f"|currency:{data.currency}"
-#         f"|timestamp:{data.timestamp}"
-#     )
-
-#     # 4. Verify Ed25519 signature
-#     is_valid = verify_ed25519_signature(
-#         public_key_base64=device.public_key,
-#         signature_base64=data.signature,
-#         message=message,
-#     )
-
-#     if not is_valid:
-#         raise HTTPException(
-#             status_code=401,
-#             detail="Invalid transaction authorization",
-#         )
-
-#     return {
-#         "message": "Transaction PIN verified successfully",
-#         "verified": True,
-#     }
 
 
 
@@ -1096,8 +1054,24 @@ async def process_deposit(
                 entry_type=LedgerEntryType.DEPOSIT
             )
 
-            # Commit transaction + wallet + ledger entry
+            notification = create_transaction_notification(
+            user_id=intent.user_id,
+            transaction_type=NotificationType.DEPOSIT,
+            title="Deposit Successful",
+            message=(
+                f"Your deposit of {amount:,.2f} {currency} "
+                "has been credited to your wallet."
+            ),
+            reference=reference,
+            reference_id=tx_id,
+            priority=NotificationPriority.NORMAL,
+            action_url="/transactions",
+            )
+
+            db.add(notification)
+
             await db.commit()
+
 
         except Exception:
             await db.rollback()
@@ -1133,6 +1107,21 @@ async def process_deposit(
         intent.status = TransactionStatus.FAILED
         intent.flutterwave_response = data
 
+        notification = create_transaction_notification(
+        user_id=intent.user_id,
+        transaction_type=NotificationType.DEPOSIT,
+        title="Deposit Failed",
+        message=(
+            f"Your deposit of {intent.amount:,.2f} "
+            f"{intent.currency} was unsuccessful. "
+            "Please check your transaction history."
+        ),
+        reference=intent.reference,
+        priority=NotificationPriority.HIGH,
+        action_url="/transactions",
+        )
+
+        db.add(notification)
         await db.commit()
 
         await manager.send_to_user(
@@ -1230,6 +1219,22 @@ async def process_withdrawal(
             withdrawal.status = TransactionStatus.COMPLETED
             tx.status = TransactionStatus.COMPLETED
 
+            db.add(
+                create_transaction_notification(
+                    user_id=withdrawal.user_id,
+                    transaction_type=NotificationType.WITHDRAWAL,
+                    title="Withdrawal Successful",
+                    message=(
+                        f"Your withdrawal of {amount:,.2f} "
+                        f"{withdrawal.currency} has been completed."
+                    ),
+                    reference=withdrawal.reference,
+                    reference_id=tx.id,
+                    priority=NotificationPriority.NORMAL,
+                    action_url="/transactions",
+                )
+            )
+
             await manager.send_to_user(
                 withdrawal.user_id,
                 {
@@ -1252,6 +1257,23 @@ async def process_withdrawal(
 
             withdrawal.status = TransactionStatus.FAILED
             tx.status = TransactionStatus.FAILED
+
+            db.add(
+                create_transaction_notification(
+                    user_id=withdrawal.user_id,
+                    transaction_type=NotificationType.WITHDRAWAL,
+                    title="Withdrawal Failed",
+                    message=(
+                        f"Your withdrawal of {amount:,.2f} "
+                        f"{withdrawal.currency} failed. "
+                        "The reserved funds have been released."
+                    ),
+                    reference=withdrawal.reference,
+                    reference_id=tx.id,
+                    priority=NotificationPriority.HIGH,
+                    action_url="/transactions",
+                )
+            )
 
             await manager.send_to_user(
                 withdrawal.user_id,

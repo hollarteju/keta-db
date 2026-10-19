@@ -246,6 +246,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
             "#EF4444" if tx.type in TransactionDirection.DEBIT_TYPES else
             "#6B7280"
         ),
+        "created_at": tx.created_at
         })
 
     recent_transactions = [
@@ -408,7 +409,8 @@ async def google_login():
         })
     )
 
-    return RedirectResponse(url=google_auth_url)
+
+    return google_auth_url
 
 
 
