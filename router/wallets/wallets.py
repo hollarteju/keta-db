@@ -13,7 +13,7 @@ from models import Wallet, User, WalletType, Withdrawal, TransactionDevice, Sett
 from schemas import WalletResponse, DepositRequest, CardPinRequest, TransactionPinCreateRequest, TransactionPinSetupRequest, TransactionPinVerifyRequest, WithdrawalAuthorizationRequest
 from dotenv import load_dotenv
 from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money, mobile_network, create_charge_mobile
-from notification.notification import create_transaction_notification
+from router.notification.notification import create_transaction_notification
 import logging
 from utils.websocket_manager import manager
 from secrets import token_urlsafe
