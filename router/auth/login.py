@@ -180,11 +180,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
 
     for wallet in wallets:
         # Get wallet balance from ledger entries
-        balance_result = await db.execute(
-            select(func.coalesce(func.sum(LedgerEntry.amount), 0))
-            .where(LedgerEntry.wallet_id == wallet.id)
-        )
-        balance = balance_result.scalar_one()
+        balance = wallet.balance
         symbol = CurrencySymbol.CURRENCY_SYMBOL.get(CurrencyType(wallet.currency), wallet.currency)
 
         # Example wallet data
@@ -245,8 +241,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
             "#22C55E" if tx.type in TransactionDirection.CREDIT_TYPES else
             "#EF4444" if tx.type in TransactionDirection.DEBIT_TYPES else
             "#6B7280"
-        ),
-        "created_at": tx.created_at
+        )
         })
 
     recent_transactions = [
@@ -254,79 +249,7 @@ async def get_enhanced_user_profile(db: AsyncSession, user_id: str):
         for date, items in grouped.items()
     ]
 
-    # # 👥 Quick transaction contacts
-    # quick_contacts_result = await db.execute(
-    #     select(User)
-    #     .join(
-    #         Transaction,
-    #         or_(
-    #             Transaction.from_user_id == User.id,
-    #             Transaction.to_user_id == User.id
-    #         )
-    #     )
-    #     .where(
-    #         or_(
-    #             Transaction.from_user_id == user_id,
-    #             Transaction.to_user_id == user_id
-    #         ),
-    #         User.id != user_id,
-    #         Transaction.status == TransactionStatus.COMPLETED
-    #     )
-    #     .group_by(User.id)
-    #     .order_by(desc(func.max(Transaction.created_at)))
-    #     .limit(5)
-    # )
-    # quick_contacts_users = quick_contacts_result.scalars().all()
-
-    # quick_transaction_contacts = [
-    #     {
-    #         "id": contact.id,
-    #         "first_name": contact.first_name,
-    #         "last_name": contact.last_name,
-    #         "profile_pic": contact.profile_pic,
-    #         "email": contact.email,
-    #     }
-    #     for contact in quick_contacts_users
-    # ]
-
-    # # 📊 Statistics
-    # total_tx_result = await db.execute(
-    #     select(func.count(Transaction.id))
-    #     .where(
-    #         or_(
-    #             Transaction.from_user_id == user_id,
-    #             Transaction.to_user_id == user_id
-    #         )
-    #     )
-    # )
-    # total_transactions = total_tx_result.scalar_one()
-
-    # completed_tx_result = await db.execute(
-    #     select(func.count(Transaction.id))
-    #     .where(
-    #         or_(
-    #             Transaction.from_user_id == user_id,
-    #             Transaction.to_user_id == user_id
-    #         ),
-    #         Transaction.status == TransactionStatus.COMPLETED
-    #     )
-    # )
-    # completed_transactions = completed_tx_result.scalar_one()
-
-    # pending_tx_result = await db.execute(
-    #     select(func.count(Transaction.id))
-    #     .where(
-    #         or_(
-    #             Transaction.from_user_id == user_id,
-    #             Transaction.to_user_id == user_id
-    #         ),
-    #         Transaction.status == TransactionStatus.PENDING
-    #     )
-    # )
-    # pending_transactions = pending_tx_result.scalar_one()
-
     return {
-        # Basic user info
         "id": user.id,
         "email": user.email,
         "first_name": user.first_name,

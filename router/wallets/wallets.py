@@ -13,7 +13,7 @@ from models import Wallet, User, WalletType, Withdrawal, TransactionDevice, Sett
 from schemas import WalletResponse, DepositRequest, CardPinRequest, TransactionPinCreateRequest, TransactionPinSetupRequest, TransactionPinVerifyRequest, WithdrawalAuthorizationRequest
 from dotenv import load_dotenv
 from utils.flutterwave_apis import get_banks, verify_account, initiate_bank_transfer, charge_card, authorize_charge_pin, create_virtual_account, charge_mobile_money, mobile_network, create_charge_mobile
-from router.notification.notification import create_transaction_notification
+from utils.notification import create_notification
 import logging
 from utils.websocket_manager import manager
 from secrets import token_urlsafe
@@ -1018,7 +1018,7 @@ async def process_deposit(
     # SUCCESSFUL
     # --------------------------------------------------
 
-    if status == "SUCCESSFUL":
+    if status in ("SUCCESSFUL", "SUCCEEDED"):
 
         try:
             intent.status = TransactionStatus.COMPLETED
@@ -1054,18 +1054,17 @@ async def process_deposit(
                 entry_type=LedgerEntryType.DEPOSIT
             )
 
-            notification = create_transaction_notification(
+            notification = await create_notification(
+            db=db,
             user_id=intent.user_id,
-            transaction_type=NotificationType.DEPOSIT,
+            notification_type=NotificationType.DEPOSIT,
             title="Deposit Successful",
             message=(
                 f"Your deposit of {amount:,.2f} {currency} "
                 "has been credited to your wallet."
             ),
-            reference=reference,
             reference_id=tx_id,
             priority=NotificationPriority.NORMAL,
-            action_url="/transactions",
             )
 
             db.add(notification)
@@ -1107,9 +1106,10 @@ async def process_deposit(
         intent.status = TransactionStatus.FAILED
         intent.flutterwave_response = data
 
-        notification = create_transaction_notification(
+        notification = await create_notification(
+        db=db,
         user_id=intent.user_id,
-        transaction_type=NotificationType.DEPOSIT,
+        notification_type=NotificationType.DEPOSIT,
         title="Deposit Failed",
         message=(
             f"Your deposit of {intent.amount:,.2f} "
@@ -1204,7 +1204,7 @@ async def process_withdrawal(
 
         amount = Decimal(str(withdrawal.amount))
 
-        if status == "SUCCESSFUL":
+        if status in ("SUCCESSFUL", "SUCCEEDED"):
             await Wallet.debit_wallet(
                 db=db,
                 wallet_id=wallet.id,
@@ -1219,21 +1219,22 @@ async def process_withdrawal(
             withdrawal.status = TransactionStatus.COMPLETED
             tx.status = TransactionStatus.COMPLETED
 
-            db.add(
-                create_transaction_notification(
-                    user_id=withdrawal.user_id,
-                    transaction_type=NotificationType.WITHDRAWAL,
-                    title="Withdrawal Successful",
-                    message=(
-                        f"Your withdrawal of {amount:,.2f} "
-                        f"{withdrawal.currency} has been completed."
-                    ),
-                    reference=withdrawal.reference,
-                    reference_id=tx.id,
-                    priority=NotificationPriority.NORMAL,
-                    action_url="/transactions",
-                )
+            
+            await create_notification(
+                db=db,
+                user_id=withdrawal.user_id,
+                notification_type=NotificationType.WITHDRAWAL,
+                title="Withdrawal Successful",
+                message=(
+                    f"Your withdrawal of {amount:,.2f} "
+                    f"{withdrawal.currency} has been completed."
+                ),
+                reference=withdrawal.reference,
+                reference_id=tx.id,
+                priority=NotificationPriority.NORMAL,
+                action_url="/transactions",
             )
+            
 
             await manager.send_to_user(
                 withdrawal.user_id,
@@ -1258,22 +1259,23 @@ async def process_withdrawal(
             withdrawal.status = TransactionStatus.FAILED
             tx.status = TransactionStatus.FAILED
 
-            db.add(
-                create_transaction_notification(
-                    user_id=withdrawal.user_id,
-                    transaction_type=NotificationType.WITHDRAWAL,
-                    title="Withdrawal Failed",
-                    message=(
-                        f"Your withdrawal of {amount:,.2f} "
-                        f"{withdrawal.currency} failed. "
-                        "The reserved funds have been released."
-                    ),
-                    reference=withdrawal.reference,
-                    reference_id=tx.id,
-                    priority=NotificationPriority.HIGH,
-                    action_url="/transactions",
-                )
+            
+            await create_notification(
+                db=db,
+                user_id=withdrawal.user_id,
+                notification_type=NotificationType.WITHDRAWAL,
+                title="Withdrawal Failed",
+                message=(
+                    f"Your withdrawal of {amount:,.2f} "
+                    f"{withdrawal.currency} failed. "
+                    "The reserved funds have been released."
+                ),
+                reference=withdrawal.reference,
+                reference_id=tx.id,
+                priority=NotificationPriority.HIGH,
+                action_url="/transactions",
             )
+        
 
             await manager.send_to_user(
                 withdrawal.user_id,
