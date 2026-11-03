@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from models import User, Wallet, LedgerEntry, TransactionStatus, Transaction, CurrencySymbol, CurrencyType, TransactionDirection
 from sqlalchemy import select, func, or_, desc
-from schemas import Token, LoginScheme, AuthenticatedUserResponse, UserUpdate, UserProfileResponse, LoginPassword
+from schemas import Token, LoginScheme, GoogleVerifyRequest, AuthenticatedUserResponse, UserUpdate, UserProfileResponse, LoginPassword
 from database import get_db, create_access_token, create_refresh_token
 from utils.email_config import send_email
 import random
@@ -16,11 +16,16 @@ import os
 import httpx
 import urllib.parse
 from fastapi.responses import RedirectResponse
+from google.auth.transport.requests import Request
+from google.oauth2 import id_token
+import logging
+
 
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET")
 GOOGLE_REDIRECT_URL = os.getenv("GOOGLE_REDIRECT_URL")
+logger = logging.getLogger(__name__)
 
 
 def format_tx_amount(tx, is_sender: bool):
@@ -317,6 +322,94 @@ async def update_me(
     return user
 
 
+@router.post("/google/verify")
+async def google_verify(payload: GoogleVerifyRequest, db: AsyncSession = Depends(get_db)):
+
+    if not GOOGLE_CLIENT_ID:
+        logger.error("GOOGLE_CLIENT_ID is missing")
+        raise HTTPException(500, "Google authentication not configured")
+
+    try:
+        logger.info("Starting Google token verification")
+
+        idinfo = id_token.verify_oauth2_token(
+            payload.id_token,
+            Request(),
+            audience=None
+        )
+
+        logger.info(
+            "Token decoded. Issuer: %s, Audience: %s",
+            idinfo.get("iss"),
+            idinfo.get("aud")
+        )
+
+        if idinfo.get("aud") != GOOGLE_CLIENT_ID:
+            logger.error(
+                f"Audience mismatch. Expected configured Google client ID. {GOOGLE_CLIENT_ID}"
+            )
+            raise HTTPException(
+                status_code=401,
+                detail="Google token audience mismatch"
+            )
+
+        if idinfo.get("iss") not in [
+            "accounts.google.com",
+            "https://accounts.google.com"
+        ]:
+            raise HTTPException(401, "Invalid token issuer")
+
+        if not idinfo.get("email_verified"):
+            raise HTTPException(401, "Google email is not verified")
+
+        email = idinfo.get("email")
+        name = idinfo.get("name")
+
+        payload = select(User).filter(
+                User.email == email
+            )
+        
+        result = await db.execute(payload)
+        user = result.scalar_one_or_none()
+        
+    
+        if not user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid credentials",
+                headers={"WWW-Authenticate": "Bearer"}
+            )
+        
+        access_token = create_access_token({"sub": str(user.id)})
+        refresh_token = create_refresh_token(data={"sub": str(user.id)})
+        await ensure_wallets_for_all_users(db)
+        
+        return Token(
+            access_token=access_token, 
+            refresh_token=refresh_token,
+            token_type="bearer",
+            status="success"
+            )
+    
+
+    except HTTPException:
+        raise
+
+    except ValueError as e:
+        logger.warning("Google token verification failed: %s", str(e))
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid or expired Google ID token"
+        )
+
+    except Exception:
+        logger.exception("Unexpected Google verification error")
+        raise HTTPException(
+            status_code=500,
+            detail="Google verification service error"
+        )
+
+    
 
 @router.get("/google/login")
 async def google_login():

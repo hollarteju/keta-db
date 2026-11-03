@@ -170,6 +170,8 @@ class LoginScheme(BaseModel):
 class LoginPassword(BaseModel):
     password: SixDigitPassword
 
+class GoogleVerifyRequest(BaseModel):
+    id_token: str = Field(..., min_length=1)
 class UpdateUser(BaseModel):
     company_name: Optional[str]
     phone_number: Optional[str]
@@ -820,3 +822,4 @@ class WithdrawalAuthorizationRequest(BaseModel):
             pattern=r"^\d{4}$",
             description="4-digit transaction PIN",
         )
+
