@@ -326,7 +326,7 @@ async def mobile_network(country):
     async with httpx.AsyncClient() as client:
         token_data = get_flutterwave_token()
         access_token = token_data.get("access_token")
-        print(country)
+  
         resp = await client.get(
             f"{FLUTTERWAVE_BASE_URL}/mobile-networks?country={country}",
             headers={
@@ -334,6 +334,7 @@ async def mobile_network(country):
                 "Content-Type": "application/json"
             }
         )
+        print("Mobile networks response:", resp.json())
         return resp.json()
     
 
@@ -362,7 +363,7 @@ async def charge_mobile_money(phone_number, network, country_code):
 
 
 async def create_charge_mobile(currency,  payment_method_id, amount, user, reference):
-    customer_id = await create_customer(user.email, user.first_name, user.last_name, country_code, phone_number)
+    customer_id = await create_customer(user.email, user.first_name, user.last_name, user.country_code, user.phone_number)
     payload = {
                 "currency": currency,
                 "payment_method_id": payment_method_id,
